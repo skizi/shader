@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>three.js flat shader</title>
+
+		<style>
+			body{
+				margin:0;
+				background-color: #fff;
+				overflow: hidden;
+			}
+		</style>
+    <script src="../../js/threejs69/three.js"></script>
+    <script src="../../js/threejs69/postprocessing/EffectComposer.js"></script>
+    <script src="../../js/threejs69/postprocessing/ShaderPass.js"></script>
+    <script src="../../js/threejs69/postprocessing/RenderPass.js"></script>
+    <script src="../../js/threejs69/shaders/CopyShader.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+		
+    <script type="x-shader/x-vertex" id="copy-vshader">
+        varying vec2 vUv;
+
+        void main(void){
+
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+
+        }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="copy-fshader">
+        varying vec2 vUv;
+        uniform sampler2D texture;
+
+        void main(void) {
+
+            vec4 c = texture2D( texture, vUv );
+            gl_FragColor = c;
+
+        }
+
+    </script>
+
+        
+    <script type="x-shader/x-vertex" id="rotateVShader">
+    varying vec2 vUv;
+    varying vec3 vColor;
+
+    mat4 getA2BRotMat( vec3 _a, vec3 _b ){
+
+        vec3 axis = normalize( cross( normalize( _a ), normalize( _b ) ) );//x
+        float rad = acos( dot( _a, _b ) );
+        
+
+        axis = normalize(axis);
+        float s = sin(rad);
+        float c = cos(rad);
+        float oc = 1.0 - c;
+        
+        mat4 m = mat4(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+            oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s,  0.0,
+            oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c, 0.0, 0.0, 0.0, 0.0, 1.0);
+        return m;
+
+    }
+
+
+    void main(void){
+
+       #ifdef USE_COLOR
+
+            #ifdef GAMMA_INPUT
+
+                vColor = color * color;
+
+            #else
+
+                vColor = color;
+
+            #endif
+
+        #endif
+
+        vUv = uv;
+
+        mat4 rotMat = getA2BRotMat( vec3( 0., 0., 1. ), vec3( 1., 0., 0. ) );
+        vec3 pos = vec4( vec4( position * 5., 1. ) * rotMat ).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1.0);
+
+    }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="rotateFShader">
+    varying vec2 vUv;
+    varying vec3 vColor;
+
+    void main(void) {
+
+        gl_FragColor = vec4( 1., 1., 1., 1. );//c;
+
+    }
+
+    </script>
+
+
+<script type="x-shader/x-vertex" id="position-vshader">
+	attribute vec3 vertices;
+	attribute float indexs;
+	varying vec3 pos;
+	uniform float pointSize;
+
+	const float frag = 1.0 / 64.0;
+	const float texShift = 0.5 * frag;
+
+    void main(void){
+
+	    float pu = fract(indexs * frag) * 2.0 - 1.0;
+	    float pv = floor(indexs * frag) * frag * 2.0 - 1.0;
+
+    	pos = vertices;
+	    
+        //gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+    	gl_Position = vec4(pu + texShift, pv + texShift, 0.0, 1.0);
+		gl_PointSize = 1.;
+
+    }
+
+</script>
+
+
+<script type="x-shader/x-fragment" id="position-fshader">
+	precision mediump float;
+	varying vec3 pos;
+
+    void main(void) {
+
+        //float index = gl_FragCoord.x + gl_FragCoord.y * 64.;
+        gl_FragColor = vec4( pos, 1. );//c;
+
+    }
+
+</script>
+
+
+<script type="x-shader/x-vertex" id="hair-vshader">
+
+	attribute vec3 normals;
+	attribute float indexs;
+	//本来はskinWeightに値を渡したいが、バグ対応のためskinWeight2とする
+	attribute vec4 skinWeight2;	
+
+    uniform sampler2D textuer;
+    uniform sampler2D oldBoneTexture;
+	varying vec3 pos;
+
+	const float frag = 1.0 / 64.0;
+	const float texShift = 0.5 * frag;
+    const float toRad = 0.017453292519943295;
+
+    struct AnimedDatas {
+      vec4 skinned;
+      vec4 skinnedNormal;
+    };
+
+
+    #ifdef USE_SKINNING
+
+        uniform mat4 bindMatrix;
+        uniform mat4 bindMatrixInverse;
+
+        #ifdef BONE_TEXTURE
+
+            uniform sampler2D boneTexture;
+            uniform int boneTextureWidth;
+            uniform int boneTextureHeight;
+
+            mat4 getBoneMatrix( const in float i, sampler2D _boneTexture ) {
+
+                float j = i * 4.0;
+                float x = mod( j, float( boneTextureWidth ) );
+                float y = floor( j / float( boneTextureWidth ) );
+
+                float dx = 1.0 / float( boneTextureWidth );
+                float dy = 1.0 / float( boneTextureHeight );
+
+                y = dy * ( y + 0.5 );
+
+                vec4 v1 = texture2D( _boneTexture, vec2( dx * ( x + 0.5 ), y ) );
+                vec4 v2 = texture2D( _boneTexture, vec2( dx * ( x + 1.5 ), y ) );
+                vec4 v3 = texture2D( _boneTexture, vec2( dx * ( x + 2.5 ), y ) );
+                vec4 v4 = texture2D( _boneTexture, vec2( dx * ( x + 3.5 ), y ) );
+
+                mat4 bone = mat4( v1, v2, v3, v4 );
+
+                return bone;
+
+            }
+
+        #else
+
+            uniform mat4 boneGlobalMatrices[ MAX_BONES ];
+
+            mat4 getBoneMatrix( const in float i, sampler2D _boneTexture ) {
+
+                mat4 bone = boneGlobalMatrices[ int(i) ];
+                return bone;
+
+            }
+
+        #endif
+
+    #endif
+
+
+    AnimedDatas getSkinnedPosition( sampler2D _boneTexture, vec3 defaultPosition ){
+
+        mat4 boneMatX = getBoneMatrix( skinIndex.x, _boneTexture );
+        mat4 boneMatY = getBoneMatrix( skinIndex.y, _boneTexture );
+        mat4 boneMatZ = getBoneMatrix( skinIndex.z, _boneTexture );
+        mat4 boneMatW = getBoneMatrix( skinIndex.w, _boneTexture );
+
+
+        vec3 transformed = vec3( defaultPosition );
+        vec4 skinVertex = bindMatrix * vec4( transformed, 1.0 );
+
+        vec4 skinned = vec4( 0.0 );
+        skinned += boneMatX * skinVertex * skinWeight2.x;
+        skinned += boneMatY * skinVertex * skinWeight2.y;
+        skinned += boneMatZ * skinVertex * skinWeight2.z;
+        skinned += boneMatW * skinVertex * skinWeight2.w;
+        skinned  = bindMatrixInverse * skinned;
+
+
+        //normal
+        mat4 skinMatrix = mat4( 0.0 );
+        skinMatrix += skinWeight2.x * boneMatX;
+        skinMatrix += skinWeight2.y * boneMatY;
+        skinMatrix += skinWeight2.z * boneMatZ;
+        skinMatrix += skinWeight2.w * boneMatW;
+        skinMatrix  = bindMatrixInverse * skinMatrix * bindMatrix;
+
+        #ifdef USE_MORPHNORMALS
+
+            vec4 skinnedNormal = skinMatrix * vec4( morphedNormal, 0.0 );
+
+        #else
+
+            vec4 skinnedNormal = skinMatrix * vec4( normal, 0.0 );
+
+        #endif
+
+        AnimedDatas animedDatas;
+        animedDatas.skinned = skinned;
+        animedDatas.skinnedNormal = skinnedNormal;
+
+        return animedDatas;
+
+    }
+
+
+
+    mat4 getA2BRotMat( vec3 _a, vec3 _b ){
+
+        vec3 axis = normalize( cross( normalize( _a ), normalize( _b ) ) );//x
+        float rad = acos( dot( _a, _b ) );
+        
+
+        axis = normalize(axis);
+        float s = sin(rad);
+        float c = cos(rad);
+        float oc = 1.0 - c;
+        
+        mat4 m = mat4(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+            oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s,  0.0,
+            oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c, 0.0, 0.0, 0.0, 0.0, 1.0);
+        return m;
+
+    }
+
+
+
+
+
+    void main(void){
+
+        //VTF
+	    float pu = fract(indexs * frag + texShift);
+	    float pv = floor(indexs * frag) * frag + texShift;
+	    vec3 puv = texture2D(textuer, vec2(pu, pv)).rgb;// * 2.0 - 1.0;
+        pos = puv;
+
+
+        //skinning
+        #ifdef USE_SKINNING
+
+            AnimedDatas animedDatas = getSkinnedPosition( boneTexture, puv );
+            AnimedDatas oldAnimedDatas = getSkinnedPosition( oldBoneTexture, puv );
+            vec4 skinned = animedDatas.skinned;
+            vec4 oldSkinned = oldAnimedDatas.skinned;
+
+        #endif
+
+
+        mat4 rotMat = getA2BRotMat( vec3( 0., 0., 1. ), -normals );
+        vec3 rotPos = vec3( vec4( position.xyz * 2., 1. ) * rotMat ).xyz;
+        vec3 p = skinned.xyz + rotPos;
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( p.xyz, 1.0);
+        //gl_PointSize = 1.;
+
+    }
+
+</script>
+
+
+<script type="x-shader/x-fragment" id="hair-fshader">
+    precision mediump float;
+	varying vec3 pos;
+    uniform sampler2D textuer;
+
+    void main(void) {
+
+        //float index = gl_FragCoord.x + gl_FragCoord.y * 64.;
+        //vec4 c = texture2D( textuer, gl_PointCoord );
+        //vec4 tex = texture2D( textuer, gl_PointCoord );
+        gl_FragColor = vec4( pos, 1. );//c;
+
+    }
+
+</script>
+	</head>
+	<body>
+
+
+    <script>
+
+    	var MYAPP = {};
+    	var toRad = Math.PI / 180;
+
+    	var touchManager;
+
+        var scene;
+        var renderer;
+        var camera;
+        var cameraFov = 100;
+        var light;
+
+        var material,material2;
+
+		var stageW = window.innerWidth;
+		var stageH = window.innerHeight;
+		var stageW = 500;
+		var stageH = 500;
+
+		var textureLoadCount = 0;
+
+		var hairMesh;
+		var hairSourceMesh;
+
+		var positionComposer;
+    	var positionRenderTarget;
+	    var renderTarget;
+    	var velocityRenderTarget;
+	    //var renderTargetParameters = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBAFormat, type:THREE.FloatType, stencilBuffer: false };
+	    
+	    //http://d.hatena.ne.jp/nurs/20100922/1285150660
+	    var renderTargetParameters = {
+			minFilter: THREE.NearestFilter,//縮めた時にじまないように //THREE.LinearFilter,
+			magFilter: THREE.NearestFilter,//広げたときにじまない様に //THREE.LinearFilter,
+			format: THREE.RGBAFormat,
+			type:THREE.FloatType,//テクスチャの色の解像度　高
+			stencilBuffer: false
+		}
+
+	    var catMesh;
+        var copyMesh;
+        var oldBoneTextureRenderTarget;
+	    var hairMesh;
+	    var animations = {};
+
+
+	    $( window ).load(function(){
+
+	    	initScene();
+	    	initTexture();
+
+
+	        touchManager = new MYAPP.TouchManager();
+	        touchManager.setTouchStartFunc( downHandler.bind( this ) );
+	        touchManager.setTouchMoveFunc( moveHandler.bind( this ) );
+	        touchManager.setTouchEndFunc( upHandler.bind( this ) );
+
+	        setInterval( animate, 1000 / 30 );
+
+
+	     //    drawDown( 0, 0, 0 );
+		    //     moveHandler( 0, 0, 0 );
+		    //     moveHandler( 0, 0, 0 );
+		    //     moveHandler( 0, 0, 0 );
+	     //    setInterval( function(){
+		    //     moveHandler( 0, 0, 0 );
+		    // }.bind( this ), 1000);
+	        //drawUp();
+
+
+	    });
+
+
+	    function initScene(){
+
+	        scene = new THREE.Scene();
+
+	        renderer = new THREE.WebGLRenderer({ antialias:false });
+	        renderer.setSize(stageW, stageH);
+	        //renderer.shadowMap.enabled = true;
+	        document.body.appendChild(renderer.domElement);
+
+            var aspect = stageW / stageH;
+            camera = new THREE.PerspectiveCamera( cameraFov, aspect, 1, 1000);
+            setCamera2DPosition( stageW, stageH );
+
+	        light = new THREE.DirectionalLight(0xffffff, .8);
+	        light.position.set( 0, 20, 20);
+	        light.castShadow = true;
+	        scene.add(light);
+
+	    }
+
+
+        function setCamera2DPosition( w, h ){
+
+            camera.position.x = 0;
+            camera.position.y = 0;
+            var cameraRadius = ( h / 2 ) / Math.tan(( cameraFov * Math.PI / 180) / 2);
+            camera.position.z = cameraRadius;
+
+            camera.lookAt( new THREE.Vector3(0,0,0) );
+
+        }
+
+
+        function initTexture(){
+
+            hairTexture = THREE.ImageUtils.loadTexture('images/hair0.jpg', THREE.UVMapping, textureLoadCheck);
+
+        }
+
+
+        function textureLoadCheck(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 1 ){
+
+                initMaterial();
+                initObject();
+            }
+
+        }
+
+
+	    function initMaterial(){
+
+			material2 = new THREE.MeshBasicMaterial({side:THREE.DoubleSide, wireframe:true});
+
+		}
+
+
+		function initObject(){
+
+	        var url = 'models/cat.js';
+	        var jsonLoader = new THREE.JSONLoader();
+	        jsonLoader.load(url, catLoadCompHandler );
+
+		}
+
+
+        function catLoadCompHandler( geometry, materials ){
+
+        	var material = new THREE.MeshBasicMaterial({ map:materials[0].map });
+            material.skinning = true;
+        	catMesh = new THREE.SkinnedMesh( geometry, material );
+            catMesh.scale.multiplyScalar( 5 );
+            catMesh.visible = false;
+            scene.add( catMesh );
+
+	        animations[ 'walk' ] = new THREE.Animation( catMesh, geometry.animations[0] );
+			animations[ 'walk' ].play();
+
+
+            //renderer.render(scene, camera);
+
+            //
+	        var url = 'models/hair0.js';
+	        var jsonLoader = new THREE.JSONLoader();
+	        jsonLoader.load(url, hairLoadCompHandler );
+
+        }
+
+
+        function hairLoadCompHandler( geometry, materials ){
+
+        	var material = materials[0];
+        	material = new THREE.MeshBasicMaterial({ side:THREE.DoubleSide });
+
+            var rotateMaterial = new THREE.ShaderMaterial({
+                vertexShader: $( '#rotateVShader' ).text(),
+                fragmentShader: $( '#rotateFShader' ).text(),
+                side:THREE.DoubleSide
+            });
+
+
+            hairSourceMesh = new THREE.Mesh( geometry, material );
+            hairSourceMesh.scale.multiplyScalar( 5 );
+            hairSourceMesh.rotation.set( 0, 0, 0 );
+            //scene.add( hairSourceMesh );
+
+
+            setTimeout(function(){
+		        initComposer();
+		    }, 500 );
+
+        }
+
+
+	    function duplicateMesh( _mesh, length ){
+
+	        var _material = new THREE.MeshPhongMaterial();
+	        var meshs = [];
+	        for( var i = 0; i < length; i++ ){
+                var geometry = _mesh.geometry.clone();
+
+	            //set vertex color
+	            var color = new THREE.Color( i, Math.random(), 0 );
+	            var faceLength = geometry.faces.length;
+	            for(var j = 0; j < faceLength; j++ ) geometry.faces[j].color.copy( color );
+	            var mesh = new THREE.Mesh( geometry, _material );
+	            mesh.geometry.colorsNeedUpdate = true;
+
+	            meshs.push( mesh );
+
+	        }
+
+	        var geometry = new THREE.Geometry();
+	        for( var i = 0; i < length; i++ ){
+                meshs[i].updateMatrix();
+                geometry.merge(meshs[i].geometry, meshs[i].matrix, i);
+                //THREE.GeometryUtils.merge( geometry, meshs[i] );
+	        }
+
+	        geometry.colorsNeedUpdate = true;
+	        var mesh = new THREE.Mesh( geometry, _material );
+	        mesh.geometry.colorsNeedUpdate = true;
+	        mesh.geometry.verticesNeedUpdate = true;
+	        // mesh.castShadow = true;
+	        // mesh.position.y = .3;
+	        mesh.updateMatrixWorld( true );
+	        //scene.add( mesh );
+
+	        return mesh;
+
+	    }
+
+
+        function initComposer(){
+
+        	//renderer.autoClear = false;
+        	
+	        /*
+	        //2247 * 3 = 6741
+	        //64 * 64 = 4096
+	        */
+
+	        //キャラのメッシュの頂点座標をテクスチャに保存
+	        positionRenderTarget = new THREE.WebGLRenderTarget( 64, 64, renderTargetParameters);
+	        var geometry = new THREE.PlaneGeometry( stageW, stageH, 64, 64 );
+	        var obj1 = getSourceIndexsAndVertices( catMesh.geometry.vertices.length, catMesh );
+
+	        var pointMaterial = new THREE.ShaderMaterial({
+	        	uniforms:{
+	        		pointSize:{
+	        			type:'f',
+	        			value:stageW / 64
+	        		},
+	        	},
+        		attributes:{
+        			vertices:{
+	        			type:'v3',
+	        			value:obj1.vertices
+	        		},
+	        		indexs:{
+	        			type:'f',
+	        			value:obj1.indexs
+	        		}
+	        	},
+	            vertexShader: $( '#position-vshader' ).text(),
+	            fragmentShader: $( '#position-fshader' ).text()
+	        });
+	    // console.log(geometry.attributes.position.count);
+	    // console.log(64*64*4);
+
+	        var mesh = new THREE.PointCloud( geometry, pointMaterial );
+	        mesh.rotation.x = 0 * toRad;
+	        scene.add( mesh );
+
+	        renderer.setSize( 64, 64 );
+            renderer.render( scene, camera, positionRenderTarget );
+	        renderer.setSize( stageW, stageH );
+            mesh.visible = false;
+
+
+
+            var length = catMesh.geometry.vertices.length;
+            hairMesh = duplicateMesh( hairSourceMesh, length );
+            //hairMesh.scale.multiplyScalar( 5 );
+            scene.add( hairMesh );
+
+            var hairVertLength = hairSourceMesh.geometry.vertices.length;
+            var obj2 = getHairDatas( length, hairVertLength, catMesh );
+			//var obj2 = getHairDatas2( geometry.attributes.position.count, catMesh );
+
+            //テクスチャに保存された座標データを読み取り、メッシュの形を形成する
+	        var hairMaterial = new THREE.ShaderMaterial({
+	        	uniforms:{
+                    textuer:{
+                        type:'t',
+                        value:positionRenderTarget
+                    },
+                    boneTexture:{
+                    	type:'t',
+                    	value:catMesh.skeleton.boneTexture
+                    },
+                    oldBoneTexture:{
+                        type:'t',
+                        value:catMesh.skeleton.boneTexture  
+                    }
+	        	},
+	        	attributes:{
+	        		normals:{
+	        			type:'v3',
+	        			value:obj2.normals
+	        		},
+	        		indexs:{
+	        			type:'f',
+	        			value:obj2.indexs
+	        		},
+	        		skinIndex:{
+	        			type:'v4',
+	        			value:obj2.skinIndices
+	        		},
+	        		//本来はskinWeightに値を渡したいが、バグ対応のためskinWeight2とする
+	        		skinWeight2:{
+	        			type:'v4',
+	        			value:obj2.skinWeights
+	        		},
+	        	},
+	            vertexShader: $( '#hair-vshader' ).text(),
+	            fragmentShader: $( '#hair-fshader' ).text(),
+	            //wireframe:true,
+	            //side:THREE.DoubleSide
+	        });
+
+            hairMaterial.skinning = true;
+            //hairMaterial = new THREE.PointsMaterial({size:.01});
+            //hairMaterial = new THREE.MeshBasicMaterial();
+//new Float32Array( length * 3 );
+	        
+	        //hairMesh = new THREE.Mesh( hairMesh.geometry, hairMaterial );
+            hairMesh.material = hairMaterial;
+            hairMesh.material.needsUpdate = true;
+            //hairMesh.scale.multiplyScalar( 5 );
+            hairMesh.position.x = 3;
+            hairMesh.position.y = 0;
+            hairMesh.position.z = 0;
+            hairMesh.skeleton = catMesh.skeleton;
+            hairMesh.bones = catMesh.bones;
+            hairMesh.isSkinnedMesh = true;
+			hairMesh.bindMatrix = new THREE.Matrix4();
+			hairMesh.bindMatrixInverse = new THREE.Matrix4();
+	        scene.add( hairMesh );
+
+
+	        //var material = new THREE.MeshBasicMaterial({ map:positionRenderTarget });
+	        // mesh.material = hairMaterial;
+	        // mesh.scale.multiplyScalar( .01 );
+	        // camera.position.x = 5;
+	        // camera.position.z = 6;
+	        // camera.position.y = 6;
+	        camera.lookAt( new THREE.Vector3(3,0,0) );
+            renderer.render(scene, camera);
+
+
+
+            //過去のboneTextureを保存する用のRenderTarget
+            var w = catMesh.skeleton.boneTexture.image.width;
+            var h = catMesh.skeleton.boneTexture.image.height;
+            oldBoneTextureRenderTarget = new THREE.WebGLRenderTarget( w, h, renderTargetParameters);
+            var geometry = new THREE.PlaneGeometry( 16, 16, w, h );
+            var copyMaterial = new THREE.ShaderMaterial({
+                uniforms:{
+                    texture:{
+                        type:'t',
+                        value:catMesh.skeleton.boneTexture
+                    },
+                },
+                vertexShader: $( '#copy-vshader' ).text(),
+                fragmentShader: $( '#copy-fshader' ).text()
+            });
+
+            copyMesh = new THREE.Mesh( geometry, copyMaterial );
+            scene.add( copyMesh );
+
+            copyBoneTexture();
+        }
+
+
+        function getSourceIndexsAndVertices( _length, sourceMesh ){
+        	
+	        var vertices = [];
+	        var indexs = [];
+
+	        for( var i = 0; i < _length; i++ ){
+        		if( sourceMesh.geometry.vertices[i] ){
+	        		var v = sourceMesh.geometry.vertices[i].clone();
+	        	}else{
+        			v = new THREE.Vector3();
+        		}
+        		vertices[i] = v.clone();
+        		indexs[i] = i;
+	        }
+
+	        return { vertices:vertices, indexs:indexs };
+
+        }
+
+
+        function getHairDatas( _length, hairVertLength, sourceMesh ){
+
+	        var skinIndices = [];
+	        var skinWeights = [];
+	        var indexs = [];
+	        for( var i = 0; i < _length; i++ ){
+
+        		if( sourceMesh.geometry.skinIndices[i] ){
+					var skinIndex = sourceMesh.geometry.skinIndices[i].clone();
+					var skinWeight = sourceMesh.geometry.skinWeights[i].clone();
+	        	}else{
+					skinIndex = new THREE.Vector4();
+					skinWeight = new THREE.Vector4();
+        		}
+
+        		for( var j = 0; j < hairVertLength; j++ ){
+        			var _i = i * hairVertLength + j;
+	    			skinIndices[_i] = skinIndex.clone();
+	        		skinWeights[_i] = skinWeight.clone();
+	        		indexs[_i] = i;
+	        	}
+	        }
+
+
+	        var _normals = [];
+	        var faceLength = sourceMesh.geometry.faces.length;
+	        for( var i = 0; i < faceLength; i++ ){
+        		var face = sourceMesh.geometry.faces[i];
+        		_normals[ face.a ] = face.vertexNormals[0].clone();
+        		_normals[ face.b ] = face.vertexNormals[1].clone();
+        		_normals[ face.c ] = face.vertexNormals[2].clone();
+	        }
+
+
+	        var normals = [];
+	        var normalLength = _normals.length;
+	        for( var i = 0; i < normalLength; i++ ){
+        		for( var j = 0; j < hairVertLength; j++ ){
+	    			var _i = i * hairVertLength + j;
+		        	normals[_i] = _normals[i].clone();
+		        }
+
+	        }
+
+        	return { skinIndices:skinIndices, skinWeights:skinWeights, normals:normals, indexs:indexs };
+
+        }
+
+
+        function getHairDatas2( length, sourceMesh ){
+
+	        var count = 0;
+	        var skinIndices = new Float32Array( length * 4 );
+	        var skinWeights = new Float32Array( length * 4 );
+	        var indexs = new Float32Array( length );
+	        for( var i = 0; i < length * 4; i += 4 ){
+
+        		if( sourceMesh.geometry.skinIndices[count] ){
+					var skinIndex = sourceMesh.geometry.skinIndices[count].clone();
+					var skinWeight = sourceMesh.geometry.skinWeights[count].clone();
+	        	}else{
+					skinIndex = new THREE.Vector4();
+					skinWeight = new THREE.Vector4();
+        		}
+
+        		skinIndices[i] = skinIndex.x;
+        		skinIndices[i+1] = skinIndex.y;
+        		skinIndices[i+2] = skinIndex.z;
+        		skinIndices[i+3] = skinIndex.w;
+
+        		skinWeights[i] = skinWeight.x;
+        		skinWeights[i+1] = skinWeight.y;
+        		skinWeights[i+2] = skinWeight.z;
+        		skinWeights[i+3] = skinWeight.w;
+
+        		indexs[count] = count;
+        		count++;
+        	}
+
+        	return { skinIndices:skinIndices, skinWeights:skinWeights, indexs:indexs };
+
+        }
+
+
+        function copyBoneTexture(){
+
+            catMesh.visible = false;
+            hairMesh.visible = false;
+            copyMesh.visible = true;
+
+
+            copyMesh.material.uniforms.texture.value = catMesh.skeleton.boneTexture;
+            var w = catMesh.skeleton.boneTexture.image.width;
+            var h = catMesh.skeleton.boneTexture.image.height;
+            renderer.setSize( w, h );
+
+            setCamera2DPosition( w, h );
+
+            renderer.render( scene, camera, oldBoneTextureRenderTarget );
+            renderer.setSize( stageW, stageH );
+
+
+            copyMesh.visible = false;
+            hairMesh.visible = true;
+
+        }
+
+
+		function downHandler(){
+
+		}
+
+		function moveHandler(){
+
+		}
+
+		function upHandler(){
+	
+		}
+
+
+		var clock = new THREE.Clock();
+		var start = Date.now();
+        function animate() {
+
+            //requestAnimationFrame(animate);
+
+
+		    var delta = clock.getDelta();
+		    if( catMesh ){
+		    	THREE.AnimationHandler.update( .03 );
+
+		        if( hairMesh ){
+                    hairMesh.material.uniforms.boneTexture.value = catMesh.skeleton.boneTexture;
+                    hairMesh.material.uniforms.oldBoneTexture.value = oldBoneTextureRenderTarget;
+                }
+		    }
+
+            if( oldBoneTextureRenderTarget ){
+                copyBoneTexture();
+            }
+
+            cameraMove();
+            
+            //if( hairMesh ) hairMesh.rotation.y += .01;
+	
+	        // if( positionComposer ){
+	        // 	positionComposer.render(.1);
+         //    }
+            renderer.render(scene, camera);		
+
+        }
+
+
+		var rot = 0;
+		var radius = 3;
+        function cameraMove(){
+
+            // camera.position.x = 5;
+            camera.position.z = 6;
+            camera.position.y = 6;
+
+        	rot++;
+        	var radian = rot * toRad;
+        	var x = Math.cos( radian ) * radius + 3;
+        	//var z = Math.sin( radian ) * radius;
+        	camera.position.x = x;
+        	// camera.position.z = z;
+	        camera.lookAt( new THREE.Vector3(3,0,0) );
+
+        }
+
+
+		function getForward(obj) {
+	        var vector = new THREE.Vector3(0, 0, -1);
+	        vector.applyEuler(obj.rotation);
+	        return vector;
+	    }
+
+
+        function getFaceNormal(v0, v1, v2){
+
+		    // 頂点を結ぶベクトルを算出
+		    var vec1 = new THREE.Vector3( v1.x - v0.x, v1.y - v0.y, v1.z - v0.z );
+		    var vec2 = new THREE.Vector3( v2.x - v0.x, v2.y - v0.y, v2.z - v0.z );
+
+		    // ベクトル同士の外積
+		    var n = new THREE.Vector3();
+		    n.x = vec1.y * vec2.z - vec1.z * vec2.y;
+		    n.y = vec1.z * vec2.x - vec1.x * vec2.z;
+		    n.z = vec1.x * vec2.y - vec1.y * vec2.x;
+
+		    return n.normalize();
+		}
+
+		function getFaceNormal2( v1, v2, v3 ){
+		  var vx = (v1.y - v3.y) * (v2.z - v3.z) - (v1.z - v3.z) * (v2.y - v3.y);
+		  var vy = (v1.z - v3.z) * (v2.x - v3.x) - (v1.x - v3.x) * (v2.z - v3.z);
+		  var vz = (v1.x - v3.x) * (v2.y - v3.y) - (v1.y - v3.y) * (v2.x - v3.x);
+		  var va = Math.sqrt( Math.pow(vx,2) +Math.pow(vy,2)+Math.pow(vz,2));
+		  var v = {x:vx/va, y:vy/va, z:vz/va}; //規格化する
+		  return v;
+		}
+
+
+        function divideVertices( parentGeometry ){
+        	
+	        var geometry = new THREE.Geometry();
+
+	        var parentVertices = parentGeometry.vertices;
+	        var faceLength = parentGeometry.faces.length;
+	        for( var i = 0; i < faceLength; i++ ){
+	            
+	            var parentFaces = parentGeometry.faces[ i ];
+		        var v1 = parentVertices[ parentFaces.a ].clone();
+		        var v2 = parentVertices[ parentFaces.b ].clone();
+		        var v3 = parentVertices[ parentFaces.c ].clone();
+		        geometry.vertices.push( v1 );
+		        geometry.vertices.push( v2 );
+		        geometry.vertices.push( v3 );
+
+	            var face = new THREE.Face3( i*3, i*3+1, i*3+2 );
+		    	face.normal.copy( parentFaces.normal );
+	            geometry.faces.push( face );
+
+				geometry.faceVertexUvs[0][i] = [];
+	            for( var j = 0; j < 3; j++ ){
+					var uv = parentGeometry.faceVertexUvs[0][i][j].clone();
+			        geometry.faceVertexUvs[0][i][j] = uv;
+			    }
+
+	        }
+
+	        geometry.dynamic = true;
+
+	        return geometry;
+	    }
+
+
+	    function getAdjustUv( geometry, type ){
+
+	    	var uvs = [];
+	        var faceLength = geometry.faces.length;
+	        for( var i = 0; i < faceLength; i++ ){
+				
+				//square
+				if( type == 'square' ){
+					var uv = geometry.faceVertexUvs[0][i][2];
+					uvs.push( uv );
+					uvs.push( uv );
+					uvs.push( uv );
+				}else if( type == 'triangle' ){
+					//triangle
+					var uv0 = geometry.faceVertexUvs[0][i][0].clone();
+					var uv1 = geometry.faceVertexUvs[0][i][1].clone();
+					var uv2 = geometry.faceVertexUvs[0][i][2].clone();
+					var uv = uv0.add( uv1 ).add( uv2 ).divideScalar(3);
+					uvs.push( uv );
+					uvs.push( uv );
+					uvs.push( uv );
+				}
+
+			}
+
+			return uvs;
+
+	    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			
+
+MYAPP.touch = {
+	x:0,
+	y:0,
+	oldX:0,
+	oldY:0,
+	dragDistX:0,
+	dragDistY:0,
+	offsetX:0, 
+	offsetY:0,
+	totalOffsetX:0,
+	totalOffsetY:0,
+	downFlag:false
+};
+
+
+MYAPP.TouchManager = (function(){
+
+	var touchStartFuncs = [];
+	var touchStartFuncLength = 0;
+	var touchMoveFuncs = [];
+	var touchMoveFuncLength = 0;
+	var touchEndFuncs = [];
+	var touchEndFuncLength = 0;
+	var touch;
+
+
+
+	function TouchManager(){
+	 
+		touch = MYAPP.touch;
+		this.ua = new MYAPP.UserAgent();
+
+		this.movePreventDefaultFlag = false;
+
+		if( this.ua.platform == 'pc' ){
+		    document.addEventListener('mousedown', this.touchStartHandler.bind( this ), false);
+		    document.addEventListener('mousemove', this.touchMoveHandler.bind( this ), false);
+		    document.addEventListener('mouseup', this.touchEndHandler.bind( this ), false);
+		}else{
+		    document.addEventListener('touchstart', this.touchStartHandler.bind( this ), false);
+		    document.addEventListener('touchmove', this.touchMoveHandler.bind( this ), false);
+		    document.addEventListener('touchend', this.touchEndHandler.bind( this ), false);
+		}
+	}
+
+
+	TouchManager.prototype = {
+
+		//------------------------タッチイベント------------------------
+		touchStartHandler : function(e){
+			
+			touch.downFlag = true;
+
+			if( this.ua.platform == 'pc' ){
+				touch.x = e.clientX;
+				touch.y = e.clientY;
+			}else{
+				if (e.touches.length) {
+					touch.x = e.touches[0].pageX;
+					touch.y = e.touches[0].pageY;
+				}
+			}
+
+			for( var i = 0; i < touchStartFuncLength; i++ ) touchStartFuncs[ i ]( e );
+		},
+
+
+		touchMoveHandler : function(e){
+
+			//if( nowPage == 'top' && touch.y > 680 ) return;
+			
+			touch.oldX = touch.x;
+			touch.oldY = touch.y;
+			if( this.ua.platform == 'pc' ){
+				touch.x = e.clientX;
+				touch.y = e.clientY;
+			}else{
+				if (e.touches.length) {
+					touch.x = e.touches[0].pageX;
+					touch.y = e.touches[0].pageY;
+				}
+			}
+
+			if( touch.downFlag ){
+				touch.offsetX = touch.x - touch.oldX;
+				touch.offsetY = touch.y - touch.oldY;
+				touch.totalOffsetX += touch.offsetX;
+				touch.totalOffsetY += touch.offsetY;
+		        touch.dragDistX = Math.abs(touch.offsetX);
+		        touch.dragDistY = Math.abs(touch.offsetY);
+		    }
+		    
+			for( var i = 0; i < touchMoveFuncLength; i++ ) touchMoveFuncs[ i ]( e );
+	     	
+			//AndroidでtouchEndを発火させる為の対策
+	        if( touch.dragDistY < touch.dragDistX &&
+	        	this.ua.platform != 'pc' ||
+	        	this.movePreventDefaultFlag ){
+	        	if( e.target.tagName != 'INPUT' &&
+	        		e.target.tagName != 'TEXTAREA' ) e.preventDefault();
+	    	}
+		},
+
+
+		touchEndHandler : function(e){
+			
+			touch.downFlag = false;
+			touch.offsetX = 0;
+			touch.offsetY = 0;
+			touch.totalOffsetX = 0;
+			touch.totalOffsetY = 0;
+	        touch.dragDistX = 0;
+	        touch.dragDistY = 0;
+
+			for( var i = 0; i < touchEndFuncLength; i++ ) touchEndFuncs[ i ]( e );
+		},
+
+
+		//------------------------グローバル関数------------------------
+		setTouchStartFunc : function( func ){
+
+			touchStartFuncs.push( func );
+			touchStartFuncLength = touchStartFuncs.length;
+
+		},
+
+		setTouchMoveFunc : function( func ){
+
+			touchMoveFuncs.push( func );
+			touchMoveFuncLength = touchMoveFuncs.length;
+
+		},
+
+		setTouchEndFunc : function( func ){
+
+			touchEndFuncs.push( func );
+			touchEndFuncLength = touchEndFuncs.length;
+
+		}
+
+	}
+
+	return TouchManager;
+
+})();
+
+
+
+
+
+
+
+MYAPP.UserAgent = (function(){
+
+	function UserAgent(){
+
+		this.isAndroid = (navigator.userAgent.search(/Android/)> 0)?true:false;
+		this.is_iOS = (navigator.userAgent.search(/iPhone/)> 0 || navigator.userAgent.search(/iPod/)> 0 || navigator.userAgent.search(/iPad/)> 0)?true:false;
+		this.is_oldiPhone = (this.is_iOS ===true && window.devicePixelRatio > 1 && window.screen.height !== 568)?true:false;
+	
+
+		var ua = navigator.userAgent.toLowerCase();
+		var ver = window.navigator.appVersion.toLowerCase();
+		var browser = '';
+		var ieVer = 9999;
+		if (ua.indexOf("msie") != -1){
+			browser = 'ie';
+	        if (ver.indexOf("msie 6.") != -1){
+	            ieVer = 6;
+	        }else if (ver.indexOf("msie 7.") != -1){
+	            ieVer = 7;
+	        }else if (ver.indexOf("msie 8.") != -1){
+	            ieVer = 8;
+	        }else if (ver.indexOf("msie 9.") != -1){
+	            ieVer = 9;
+	        }else if (ver.indexOf("msie 10.") != -1){
+	            ieVer = 10;
+	        }
+	    }else if(ua.indexOf('trident/7') != -1){
+	        browser = 'ie';
+	        ieVer = 11;
+	    }else if (ua.indexOf('chrome') != -1) {
+		    browser = 'chrome';
+		} else if (ua.indexOf('safari') != -1) {
+		    browser = 'safari';
+		} else if (ua.indexOf('firefox') != -1) {
+		    browser = 'firefox';
+		} else if (ua.indexOf('opera') != -1) {
+		    browser = 'opera';
+		}
+
+		ua = navigator.userAgent;
+		var twitterFlag = false;
+		if (ua.search(/Twitter/) != -1)
+		    twitterFlag = true;
+		var platform = 'pc';
+		if (ua.search(/iPhone/) != -1) {
+		    platform = "sp";
+		} else if ((ua.search(/Android/) != -1) && (ua.search(/Mobile/) != -1)) {
+		    platform = "sp";
+		} else if ((ua.search(/iPad/) != -1) || (ua.search(/Android/) != -1)) {
+		    platform = "ipad";
+		}
+
+		this.browser = browser;
+		this.ieVer = ieVer;
+		this.platform = platform;
+	
+	}
+
+	return UserAgent;
+
+})();
+
+
+
+
+
+    </script>
+
+	</body>
+</html>

@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>three.js flat shader</title>
+
+		<style>
+			body{
+				margin:0;
+				background-color: #fff;
+				overflow: hidden;
+			}
+		</style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+    <script src="../../js/ysd.js"></script>
+    <script src="../../js/threejs69/three.js"></script>
+    <script src="../../js/threejs69/postprocessing/EffectComposer.js"></script>
+    <script src="../../js/threejs69/postprocessing/MaskPass.js"></script>
+    <script src="../../js/threejs69/postprocessing/ShaderPass.js"></script>
+    <script src="../../js/threejs69/postprocessing/RenderPass.js"></script>
+    <script src="../../js/threejs69/postprocessing/BloomPass.js"></script>
+    <script src="../../js/threejs69/shaders/CopyShader.js"></script>
+    <script src="../../js/threejs69/shaders/HorizontalTiltShiftShader.js"></script>
+    <script src="../../js/threejs69/shaders/VerticalTiltShiftShader.js"></script>
+    <script src="../../js/threejs69/shaders/ConvolutionShader.js"></script>
+    <script src="../../js/shaders/RGBShiftShader.js"></script>
+    <script src="particle.js"></script>
+		
+        
+    <script type="x-shader/x-vertex" id="rotateVShader">
+    varying vec2 vUv;
+    varying vec3 vColor;
+
+    mat4 getA2BRotMat( vec3 _a, vec3 _b ){
+
+        vec3 axis = normalize( cross( normalize( _a ), normalize( _b ) ) );//x
+        float rad = acos( dot( _a, _b ) );
+        
+
+        axis = normalize(axis);
+        float s = sin(rad);
+        float c = cos(rad);
+        float oc = 1.0 - c;
+        
+        mat4 m = mat4(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+            oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s,  0.0,
+            oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c, 0.0, 0.0, 0.0, 0.0, 1.0);
+        return m;
+
+    }
+
+
+    void main(void){
+
+       #ifdef USE_COLOR
+
+            #ifdef GAMMA_INPUT
+
+                vColor = color * color;
+
+            #else
+
+                vColor = color;
+
+            #endif
+
+        #endif
+
+        vUv = uv;
+
+        mat4 rotMat = getA2BRotMat( vec3( 0., 0., 1. ), vec3( 1., 0., 0. ) );
+        vec3 pos = vec4( vec4( position * 5., 1. ) * rotMat ).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1.0);
+        gl_PointSize = 1.;
+
+    }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="rotateFShader">
+    varying vec2 vUv;
+    varying vec3 vColor;
+
+    void main(void) {
+
+        gl_FragColor = vec4( 1., 1., 1., 1. );//c;
+
+    }
+
+    </script>
+
+<script type="x-shader/x-vertex" id="percent-vshader">
+    attribute float indexs;
+    varying vec3 color;
+    uniform sampler2D percentTexture;
+    uniform float time;
+    uniform int initFlag;
+
+    const float res = 32.0;
+    const float frag = 1.0 / res;
+    const float texShift = 0.5 * frag;
+
+    const float texel = 1. / ( 32. * 32. );
+
+    void main(void){
+        
+        //read
+        float pu1 = fract(indexs * frag + texShift);
+        float pv1 = floor(indexs * frag) * frag + texShift;
+        
+        //write
+        float pu2 = fract(indexs * frag) * 2.0 - 1.0;
+        float pv2 = floor(indexs * frag) * frag * 2.0 - 1.0;
+
+
+        vec3 percent = texture2D( percentTexture, vec2(pu1, pv1) ).rgb;
+        // float texel = 1. / 1024.;
+        // percent.x += texel;
+        
+        if( initFlag == 1 ){
+            percent.x = indexs * texel;
+        }else{
+            percent.x += texel;//2にすると2枚同時に出てくる
+        }
+        if( percent.x > 1. ) percent.x = 0.;
+        color = percent;
+        
+        //gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1.0);
+        gl_Position = vec4( pu2 + texShift, pv2 + texShift, 0.0, 1.0);
+        gl_PointSize = 1.;
+
+    }
+
+</script>
+
+
+<script type="x-shader/x-fragment" id="percent-fshader">
+    precision highp float;
+    varying vec3 color;
+
+    void main(void) {
+
+        //float index = gl_FragCoord.x + gl_FragCoord.y * 64.;
+        gl_FragColor = vec4( color, 1. );//c;
+
+    }
+
+</script>
+
+
+<script type="x-shader/x-vertex" id="position-vshader">
+	attribute float indexs;
+	varying vec3 color;
+	uniform float pointSize;
+    uniform sampler2D nowPosTexture;
+    uniform vec3 startPos;
+    uniform float time;
+    uniform float resolution;
+    //uniform sampler2D percentTexture;
+
+
+    const float res = 32.0;
+	const float frag = 1.0 / res;
+	const float texShift = 0.5 * frag;
+    const float texel = 1. / ( 32. * 32. );
+
+    void main(void){
+        
+        //read
+        float pu1 = fract(indexs * frag + texShift);
+        float pv1 = floor(indexs * frag) * frag + texShift;
+        
+        //write
+	    float pu2 = fract(indexs * frag) * 2.0 - 1.0;
+	    float pv2 = floor(indexs * frag) * frag * 2.0 - 1.0;
+
+
+        //float t = mod( time + indexs, resolution ) / resolution;
+        //float t = texture2D( percentTexture, vec2(pu1, pv1) ).r;
+        //float t = mod( time + indexs, 128. ) / 128.;
+        float t = mod( time + indexs, 90. ) / 90.;
+
+        if( t == 0. ){
+            color = startPos;
+        }else{
+            vec3 nowPos = texture2D( nowPosTexture, vec2(pu1, pv1) ).rgb;
+            // if( nowPos.x == 0. ){
+            //     nowPos = vec3( 0., -20., 0. );
+            // }
+            color = nowPos;
+        }
+	    
+        //gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1.0);
+    	gl_Position = vec4( pu2 + texShift, pv2 + texShift, 0.0, 1.0);
+		gl_PointSize = 1.;
+
+    }
+
+</script>
+
+
+<script type="x-shader/x-fragment" id="position-fshader">
+	precision mediump float;
+	varying vec3 color;
+
+    void main(void) {
+
+        //float index = gl_FragCoord.x + gl_FragCoord.y * 64.;
+        gl_FragColor = vec4( color, 1. );//c;
+
+    }
+
+</script>
+
+
+
+<script type="x-shader/x-vertex" id="velocity-vshader">
+    attribute float indexs;
+    varying vec3 color;
+    uniform vec3 mouseVelocity;
+    uniform sampler2D velocityTexture;
+    uniform float time;
+    uniform float resolution;
+    //uniform sampler2D percentTexture;
+
+    const float res = 32.0;
+    const float frag = 1.0 / res;
+    const float texShift = 0.5 * frag;
+    const float texel = 1. / ( 32. * 32. );
+
+    void main(void){
+        
+        //read
+        float pu1 = fract(indexs * frag + texShift);
+        float pv1 = floor(indexs * frag) * frag + texShift;
+        
+        //write
+        float pu2 = fract(indexs * frag) * 2.0 - 1.0;
+        float pv2 = floor(indexs * frag) * frag * 2.0 - 1.0;
+
+
+        //float t = mod( time + indexs, resolution ) / resolution;
+        //float t = texture2D( percentTexture, vec2(pu1, pv1) ).r;
+        //float t = mod( time + indexs, 256. ) / 256.;
+        //float t = mod( time + indexs, 100. ) / 100.;
+        float t = mod( time + indexs, 30. ) / 30.;
+
+        if( t == 0. ){
+            color = mouseVelocity;
+        }else{
+            vec3 nowVelocity = texture2D( velocityTexture, vec2(pu1, pv1) ).rgb;
+            color = nowVelocity;
+        }
+        
+        //gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1.0);
+        gl_Position = vec4( pu2 + texShift, pv2 + texShift, 0.0, 1.0);
+        gl_PointSize = 1.;
+
+    }
+
+</script>
+
+
+<script type="x-shader/x-fragment" id="velocity-fshader">
+    precision mediump float;
+    varying vec3 color;
+
+    void main(void) {
+
+        //float index = gl_FragCoord.x + gl_FragCoord.y * 64.;
+        gl_FragColor = vec4( color, 1. );//c;
+
+    }
+
+</script>
+
+
+
+
+
+<script type="x-shader/x-vertex" id="particle-vshader">
+    attribute float indexs;
+    attribute vec3 origins;
+    attribute vec3 randoms;
+    
+    varying vec3 color;
+    varying float diffuse;
+
+    uniform float pointSize;
+    uniform sampler2D nowPosTexture;
+    uniform sampler2D velocityTexture;
+    uniform float time;
+    uniform float resolution;
+    uniform vec3 lightPos;
+    //uniform sampler2D percentTexture;
+    uniform vec3 baseColor;
+
+    const float res = 32.0;
+    const float frag = 1.0 / res;
+    const float texShift = 0.5 * frag;
+
+
+    mat4 getAxisRotMatrix( vec3 axis, float rad ){
+
+        float s = sin(rad);
+        float c = cos(rad);
+        float oc = 1.0 - c;
+        
+        mat4 m = mat4(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+            oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s,  0.0,
+            oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c, 0.0, 0.0, 0.0, 0.0, 1.0);
+        return m;
+
+    }
+
+    void main(void){
+
+        //read
+        float pu1 = fract(indexs * frag + texShift);
+        float pv1 = floor(indexs * frag) * frag + texShift;
+
+        //float t = mod( time + indexs, resolution ) / resolution;
+        // vec4 percentTex = texture2D( percentTexture, vec2(pu1, pv1) );
+        // float t = percentTex.x / 10.;
+        float t = mod( time + indexs, 30. ) / 30.;
+        //float t = mod( time + indexs, 256. ) / 256.;
+
+        float size = t * 6.;
+        if( size > 3. ) size = 3.;
+        if( size > 4. ){
+            size = 6. - t * 6.;
+        }
+        vec3 offset = ( position - origins ) * size;
+        vec3 axis = randoms;
+        mat4 rotMat = getAxisRotMatrix( axis, time * .3 );
+        offset = ( vec4( offset, 1. ) * rotMat ).xyz;
+
+        
+
+        vec3 nowPos = texture2D( nowPosTexture, vec2(pu1, pv1) ).rgb;
+        vec3 velocity = texture2D( velocityTexture, vec2(pu1, pv1) ).rgb;
+        //color = nowPos + velocity * ( t * 600. ) + offset;
+        color = nowPos + offset + ( ( velocity * ( randoms * .3 ) ) * 20. ) * t + vec3( 0., -3., 0. ) * t;
+        //color.x += indexs;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( color, 1.0);
+
+        // color = vec3( color.y * .2 + randoms.y, color.x + randoms.x, color.z );
+        // color *= .2;
+
+//color = velocity;
+color = baseColor + randoms * .9;
+
+        //diffuse
+        diffuse = 1. - t;
+    }
+
+</script>
+
+
+<script type="x-shader/x-fragment" id="particle-fshader">
+    precision mediump float;
+    varying vec3 color;
+    varying float diffuse;
+
+    void main(void) {
+
+        //float index = gl_FragCoord.x + gl_FragCoord.y * 64.;
+        //gl_FragColor = vec4( color, 1. );
+        gl_FragColor = vec4( color * vec3( diffuse ), 1. );//c;
+
+    }
+
+</script>
+
+
+
+
+
+    <script type="x-shader/x-vertex" id="bloom-vshader">
+        varying vec2 vUv;
+
+        void main(void){
+
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+
+        }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="bloom-fshader">
+        varying vec2 vUv;
+        uniform sampler2D tDiffuse;
+        uniform sampler2D oldTexture;
+        uniform float blurStrength;
+
+        vec3 alphaBlend( vec4 c1, vec4 c2 ){
+            vec3 c = c1.a * c1.xyz + ( 1.0 - c1.a ) * c2.xyz;
+            return c;
+        }
+
+        void main(void) {
+
+            vec4 diffuse = texture2D( tDiffuse, vUv );
+            vec4 old = texture2D( oldTexture, vUv );
+
+            vec4 c = diffuse + old * .8;
+            //old.a = .8;
+            //vec4 c = vec4( alphaBlend( old, diffuse ), 1. );
+            gl_FragColor = c;
+            //gl_FragColor = blur;
+
+        }
+
+    </script>
+
+
+
+
+
+    <script type="x-shader/x-vertex" id="composit-vshader">
+        varying vec2 vUv;
+
+        void main(void){
+
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+
+        }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="composit-fshader">
+        varying vec2 vUv;
+        uniform sampler2D tDiffuse;
+        uniform sampler2D oldTexture;
+        uniform sampler2D blurTexture;
+        uniform float blurStrength;
+
+        vec3 alphaBlend( vec4 c1, vec4 c2 ){
+            vec3 c = c1.a * c1.xyz + ( 1.0 - c1.a ) * c2.xyz;
+            return c;
+        }
+
+        void main(void) {
+
+            vec4 diffuse = texture2D( tDiffuse, vUv );
+            //vec4 old = texture2D( oldTexture, vUv );
+            vec4 blur = texture2D( blurTexture, vUv );
+            //old.a = .7;
+
+            //vec4 c = vec4( alphaBlend( old, diffuse ), 1. );
+            gl_FragColor = diffuse + blur + blur;
+            //gl_FragColor = blur;
+
+        }
+
+    </script>
+
+
+
+    <script type="x-shader/x-vertex" id="copy-vshader">
+        varying vec2 vUv;
+
+        void main(void){
+
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+
+        }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="copy-fshader">
+        varying vec2 vUv;
+        uniform sampler2D tDiffuse;
+        uniform sampler2D tCopy;
+
+
+        void main(void) {
+
+            vec4 diffuse = texture2D( tCopy, vUv );
+            gl_FragColor = diffuse;// + blur;
+            //gl_FragColor = blur;
+
+        }
+
+    </script>
+
+
+
+    <script type="x-shader/x-vertex" id="graycut-vshader">
+        varying vec2 vUv;
+
+        void main(void){
+
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+
+        }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="graycut-fshader">
+        varying vec2 vUv;
+        uniform sampler2D tDiffuse;
+
+
+        void main(void) {
+
+            vec4 diffuse = texture2D( tDiffuse, vUv );
+            if( ( diffuse.x + diffuse.y + diffuse.z ) / 3. < .6 ) diffuse.xyz = vec3( 0. );
+            gl_FragColor = diffuse;// + blur;
+            //gl_FragColor = blur;
+
+        }
+
+    </script>
+
+
+</head>
+<body>
+
+
+<script>
+
+	var MYAPP = MYAPP||{};
+
+    $( window ).load(function(){
+
+        new MYAPP.Main();
+
+    });
+
+
+    MYAPP.Main = (function(){
+
+    	var toRad = Math.PI / 180;
+
+        var mousePosition = new THREE.Vector3();
+        var oldMousePosition = new THREE.Vector3();
+
+        var scene;
+        var renderer;
+        var camera;
+        var cameraFov = 50;
+        var light;
+
+        var material,material2;
+
+		var stageW = window.innerWidth;
+		var stageH = window.innerHeight;
+		// var stageW = 400;
+		// var stageH = 400;
+
+		var textureLoadCount = 0;
+
+		var hairMesh;
+        var hairPositionMesh;
+		var hairSourceMesh;
+
+	    //http://d.hatena.ne.jp/nurs/20100922/1285150660
+	    var renderTargetParameters = {
+			minFilter: THREE.NearestFilter,//縮めた時にじまないように //THREE.LinearFilter,
+			magFilter: THREE.NearestFilter,//広げたときにじまない様に //THREE.LinearFilter,
+			format: THREE.RGBAFormat,
+			type:THREE.FloatType,//テクスチャの色の解像度　高
+			stencilBuffer: false
+		}
+
+	    var manMesh;
+        var headBone;
+        var rightHandBone;
+        var leftHandBone;
+        var copyMesh;
+	    var animations = {};
+
+        var groundMesh;
+        var groundTexture;
+
+        var composer;
+        var manComposer;
+        var copyComposer;
+
+
+        var particle1;
+        var particle2;
+
+
+
+        function Main(){
+
+	    	initScene();
+	    	initTexture();
+
+            $( window ).resize( resize );
+
+        }
+
+
+	    function initScene(){
+
+	        scene = new THREE.Scene();
+
+	        renderer = new THREE.WebGLRenderer({ antialias:false });
+	        renderer.setSize(stageW, stageH);
+	        renderer.shadowMapEnabled = true;
+            //renderer.autoClear = false;
+	        document.body.appendChild(renderer.domElement);
+
+            var aspect = stageW / stageH;
+            camera = new THREE.PerspectiveCamera( cameraFov, aspect, .1, 1000);
+            setCamera2DPosition( stageW, stageH );
+
+	        light = new THREE.DirectionalLight(0xffffff, .8);
+	        light.position.set( 0, 40, 0);
+            light.shadowMapWidth = 1024;//影の描画用テクスチャの横解像度
+            light.shadowMapHeight = 1024;//影の描画用テクスチャの縦解像度
+            light.shadowCameraNear = 1; //四角錐台の上面の位置
+            light.shadowCameraFar = 70; //四角錐台の下面の位置
+            light.shadowCameraLeft = -20;    //描画範囲左範囲
+            light.shadowCameraRight = 20;    //描画範囲右範囲
+            light.shadowCameraTop = 20;  //描画範囲上範囲
+            light.shadowCameraBottom = -20;  //描画範囲下範囲
+            //light.shadowCameraVisible = true;
+	        light.castShadow = true;
+
+	        scene.add(light);
+
+	    }
+
+
+        function setCamera2DPosition( w, h ){
+
+            camera.position.x = 0;
+            camera.position.y = 0;
+            var cameraRadius = ( h / 2 ) / Math.tan(( cameraFov * Math.PI / 180) / 2);
+            camera.position.z = cameraRadius;
+
+            camera.lookAt( new THREE.Vector3(0,0,0) );
+
+        }
+
+
+        function initTexture(){
+
+            hairTexture = THREE.ImageUtils.loadTexture('images/hair0.jpg', THREE.UVMapping, textureLoadCheck);
+            groundTexture = THREE.ImageUtils.loadTexture('images/ground0.jpg', THREE.UVMapping, textureLoadCheck);
+
+        }
+
+
+        function textureLoadCheck(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 2 ){
+
+                initMaterial();
+                initObject();
+                initComposer();
+            }
+
+        }
+
+
+	    function initMaterial(){
+
+			material2 = new THREE.MeshBasicMaterial({side:THREE.DoubleSide, wireframe:true});
+
+		}
+
+
+		function initObject(){
+
+            var geometry = new THREE.PlaneGeometry( 60, 60, 1, 1 );
+            var material = new THREE.MeshLambertMaterial({ map:groundTexture });
+            groundMesh = new THREE.Mesh( geometry, material );
+            groundMesh.rotation.x = 270 * toRad;
+            groundMesh.receiveShadow = true;
+            scene.add( groundMesh );
+
+
+            var url = 'models/man.js';
+	        var jsonLoader = new THREE.JSONLoader();
+	        jsonLoader.load(url, manLoadCompHandler );
+
+		}
+
+
+        function manLoadCompHandler( geometry, materials ){
+
+        	var material = new THREE.MeshLambertMaterial({
+                map:materials[0].map,
+                //wireframe:true,
+                shading:THREE.FlatShading,
+                transparent:true,
+                //opacity:0
+            });
+            material = new THREE.MeshBasicMaterial({ wireframe:true });
+
+            material.skinning = true;
+        	manMesh = new THREE.SkinnedMesh( geometry, material );
+            manMesh.scale.multiplyScalar( 10 );
+            manMesh.frustumCulled = false;
+            manMesh.castShadow = true;
+            scene.add( manMesh );
+
+	        animations[ 'walk' ] = new THREE.Animation( manMesh, geometry.animations[3] );
+			animations[ 'walk' ].play();
+
+
+            headBone = manMesh.skeleton.bones[6];
+            rightHandBone = manMesh.skeleton.bones[10];
+            leftHandBone = manMesh.skeleton.bones[14];
+            //renderer.render(scene, camera);
+
+            initParticle();
+
+            setInterval( animate, 1000 / 30 );
+        }
+
+
+        function initParticle(){
+            
+            particle1 = new MYAPP.Particle( rightHandBone, new THREE.Vector3( 189/255, 0, 236/255 ), renderer, scene, camera, light );
+            scene.add( particle1.points );
+            scene.add( particle1.mesh );
+
+            particle2 = new MYAPP.Particle( leftHandBone, new THREE.Vector3( .15, .4, 1 ), renderer, scene, camera, light );
+            scene.add( particle2.points );
+            scene.add( particle2.mesh );
+
+        }
+
+
+        function initComposer(){
+
+            copyComposer = new THREE.EffectComposer( renderer );
+            manComposer = new THREE.EffectComposer( renderer );
+
+
+            composer = new THREE.EffectComposer( renderer );
+            composer.addPass(new THREE.RenderPass(scene, camera));
+
+            var shader = {
+                uniforms: {
+                    tDiffuse: {
+                        type: "t",
+                        value: null
+                    },
+                    blurTexture:{
+                        type:'t',
+                        value:manComposer.renderTarget1
+                    },
+                    oldTexture:{
+                        type:"t",
+                        value:copyComposer.renderTarget1
+                    },
+                    blurStrength:{
+                        type:"f",
+                        value:0.8
+                    }
+                },
+                vertexShader: $('#composit-vshader').text(),
+                fragmentShader: $('#composit-fshader').text()
+            };
+            compositShaderPass = new THREE.ShaderPass(shader);
+            compositShaderPass.needsSwap = true;
+            composer.addPass(compositShaderPass);
+
+
+            var obj2 = getBlurPass( .5, 3 );
+            composer.addPass(obj2.hblur);
+            composer.addPass(obj2.vblur);
+
+            //composer.addPass(new THREE.BloomPass(5, 20));
+            var effect = new THREE.ShaderPass(THREE.RGBShiftShader);
+            effect.uniforms['amount'].value = 0.002;
+            composer.addPass(effect);
+
+
+            toScreenPass = new THREE.ShaderPass(THREE.CopyShader);
+            toScreenPass.renderToScreen = true;
+            composer.addPass( toScreenPass );
+
+
+            //man
+            manComposer.addPass( new THREE.RenderPass(scene, camera) );
+            //manComposer.render(.1);
+
+            var grayShader = {
+                uniforms: {
+                    tDiffuse: {
+                        type: "t",
+                        value: null
+                    }
+                },
+                vertexShader: $('#graycut-vshader').text(),
+                fragmentShader: $('#graycut-fshader').text()
+            };
+            var grayShaderPass = new THREE.ShaderPass(grayShader);
+            grayShaderPass.needsSwap = true;
+            manComposer.addPass(grayShaderPass);
+
+
+            var obj1 = getBlurPass( 1, 6 );
+            manComposer.addPass(obj1.hblur);
+            manComposer.addPass(obj1.vblur);
+
+            // var shader1 = {
+            //     uniforms: {
+            //         tDiffuse: {
+            //             type: "t",
+            //             value: null
+            //         },
+            //         oldTexture:{
+            //             type:"t",
+            //             value:copyComposer.renderTarget1
+            //         },
+            //         blurStrength:{
+            //             type:"f",
+            //             value:0.8
+            //         }
+            //     },
+            //     vertexShader: $('#bloom-vshader').text(),
+            //     fragmentShader: $('#bloom-fshader').text()
+            // };
+            // bloomShaderPass = new THREE.ShaderPass(shader1);
+            // bloomShaderPass.needsSwap = true;
+            // manComposer.addPass(bloomShaderPass);
+            // manComposer.addPass( toScreenPass );
+
+
+            //copy
+            copyComposer.addPass(new THREE.RenderPass(scene, camera));
+            var shader1 = {
+                uniforms: {
+                    tCopy: {
+                        type: "t",
+                        value: manComposer.renderTarget1
+                    }
+                },
+                vertexShader: $('#copy-vshader').text(),
+                fragmentShader: $('#copy-fshader').text()
+            };
+            var shaderPass = new THREE.ShaderPass(shader1);
+            shaderPass.needsSwap = true;
+            copyComposer.addPass(shaderPass);
+            //copyComposer.render(.1);
+
+        }
+
+
+        function getBlurPass( r, bluriness ){
+
+            var hblur = new THREE.ShaderPass(THREE.HorizontalTiltShiftShader);
+            var vblur = new THREE.ShaderPass(THREE.VerticalTiltShiftShader);
+            hblur.uniforms['h'].value = bluriness / stageW;
+            vblur.uniforms['v'].value = bluriness / stageH;
+            hblur.uniforms['r'].value = vblur.uniforms['r'].value = r;
+
+            return { hblur:hblur, vblur:vblur };
+        }
+
+
+        var resolutionW = 32;
+        var start = Date.now();
+        var time = 0;
+        var oldTime = 0;
+		var clock = new THREE.Clock();
+        function animate() {
+
+		    var delta = clock.getDelta();
+		    if( manMesh ){
+		    	THREE.AnimationHandler.update( .06 );
+		    }
+
+
+            //renderer.setSize( 256, 256 );
+
+
+
+            //var time = ( Date.now() - start );
+            time+=1;
+
+            if( particle1 ){
+                manMesh.visible = false;
+                groundMesh.visible = false;
+                
+                renderer.setSize( resolutionW, resolutionW );
+                setCamera2DPosition( resolutionW, resolutionW );
+
+
+                particle1.render( time );
+                particle2.render( time );
+
+
+                renderer.setSize( stageW, stageH );
+                
+                //manMesh.visible = true;
+                groundMesh.visible = true;
+            }
+
+
+            cameraMove();
+            //renderer.render( scene, camera );
+            if( composer ){
+
+                groundMesh.visible = false;
+                particle1.mesh.visible = true;
+                particle2.mesh.visible = true;
+                manMesh.visible = false;
+
+                manComposer.render(.1);
+
+
+                //if( time - oldTime > 2 ){
+                    //copyComposer.render(.1);
+                    oldTime = time;
+                //}
+
+
+                groundMesh.visible = true;
+                // particle1.mesh.visible = true;
+                //particle2.mesh.visible = true;
+                composer.render(.1);
+            }
+
+        }
+
+
+		var rot = 0;
+		var radius = 25;
+        function cameraMove(){
+
+            var bonePos = headBone.getWorldPosition().clone();
+            camera.position.copy( bonePos );
+            //camera.position.z -= 30;
+
+        	rot++;
+        	var radian = rot * toRad;
+        	var x = Math.cos( radian ) * radius;
+        	var z = Math.sin( radian ) * radius;
+        	camera.position.x += x;
+        	camera.position.z += z;
+
+            manMesh.position.x = x;
+            manMesh.position.z = z;
+
+
+            var lookPos = bonePos.clone();
+            lookPos.y -=5;
+            camera.lookAt( lookPos );
+            //light.shadowCamera.lookAt( lookPos );
+
+        }
+
+
+		function getForward(obj) {
+	        var vector = new THREE.Vector3(0, 0, -1);
+	        vector.applyEuler(obj.rotation);
+	        return vector;
+	    }
+
+
+        function getFaceNormal(v0, v1, v2){
+
+		    // 頂点を結ぶベクトルを算出
+		    var vec1 = new THREE.Vector3( v1.x - v0.x, v1.y - v0.y, v1.z - v0.z );
+		    var vec2 = new THREE.Vector3( v2.x - v0.x, v2.y - v0.y, v2.z - v0.z );
+
+		    // ベクトル同士の外積
+		    var n = new THREE.Vector3();
+		    n.x = vec1.y * vec2.z - vec1.z * vec2.y;
+		    n.y = vec1.z * vec2.x - vec1.x * vec2.z;
+		    n.z = vec1.x * vec2.y - vec1.y * vec2.x;
+
+		    return n.normalize();
+		}
+
+
+		function getFaceNormal2( v1, v2, v3 ){
+
+		  var vx = (v1.y - v3.y) * (v2.z - v3.z) - (v1.z - v3.z) * (v2.y - v3.y);
+		  var vy = (v1.z - v3.z) * (v2.x - v3.x) - (v1.x - v3.x) * (v2.z - v3.z);
+		  var vz = (v1.x - v3.x) * (v2.y - v3.y) - (v1.y - v3.y) * (v2.x - v3.x);
+		  var va = Math.sqrt( Math.pow(vx,2) +Math.pow(vy,2)+Math.pow(vz,2));
+		  var v = {x:vx/va, y:vy/va, z:vz/va}; //規格化する
+
+		  return v;
+
+		}
+
+
+        function divideVertices( parentGeometry ){
+        	
+	        var geometry = new THREE.Geometry();
+
+	        var parentVertices = parentGeometry.vertices;
+	        var faceLength = parentGeometry.faces.length;
+	        for( var i = 0; i < faceLength; i++ ){
+	            
+	            var parentFaces = parentGeometry.faces[ i ];
+		        var v1 = parentVertices[ parentFaces.a ].clone();
+		        var v2 = parentVertices[ parentFaces.b ].clone();
+		        var v3 = parentVertices[ parentFaces.c ].clone();
+		        geometry.vertices.push( v1 );
+		        geometry.vertices.push( v2 );
+		        geometry.vertices.push( v3 );
+
+	            var face = new THREE.Face3( i*3, i*3+1, i*3+2 );
+		    	face.normal.copy( parentFaces.normal );
+	            geometry.faces.push( face );
+
+				geometry.faceVertexUvs[0][i] = [];
+	            for( var j = 0; j < 3; j++ ){
+					var uv = parentGeometry.faceVertexUvs[0][i][j].clone();
+			        geometry.faceVertexUvs[0][i][j] = uv;
+			    }
+
+	        }
+
+	        geometry.dynamic = true;
+
+	        return geometry;
+	    }
+
+
+	    function getAdjustUv( geometry, type ){
+
+	    	var uvs = [];
+	        var faceLength = geometry.faces.length;
+	        for( var i = 0; i < faceLength; i++ ){
+				
+				//square
+				if( type == 'square' ){
+					var uv = geometry.faceVertexUvs[0][i][2];
+					uvs.push( uv );
+					uvs.push( uv );
+					uvs.push( uv );
+				}else if( type == 'triangle' ){
+					//triangle
+					var uv0 = geometry.faceVertexUvs[0][i][0].clone();
+					var uv1 = geometry.faceVertexUvs[0][i][1].clone();
+					var uv2 = geometry.faceVertexUvs[0][i][2].clone();
+					var uv = uv0.add( uv1 ).add( uv2 ).divideScalar(3);
+					uvs.push( uv );
+					uvs.push( uv );
+					uvs.push( uv );
+				}
+
+			}
+
+			return uvs;
+
+	    }
+
+
+        function resize(){
+
+            stageW = window.innerWidth;
+            stageH = window.innerHeight;
+            camera.aspect = stageW / stageH;
+            camera.updateProjectionMatrix();
+            renderer.setSize(stageW, stageH);
+
+        }
+
+        return Main;
+
+    })();
+
+</script>
+
+</body>
+</html>

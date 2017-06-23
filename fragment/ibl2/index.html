@@ -1,0 +1,829 @@
+﻿<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Shader TEST</title>
+
+    <style>
+    html,body{
+        margin:0;
+        overflow: hidden;
+    }
+
+    </style>
+
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+    <script src="../../js/ysd.js"></script>
+    <script src="../../js/threejs69/three.js"></script>
+    <script src="../../js/threejs69/postprocessing/EffectComposer.js"></script>
+    <script src="../../js/threejs69/postprocessing/MaskPass.js"></script>
+    <script src="../../js/threejs69/postprocessing/ShaderPass.js"></script>
+    <script src="../../js/threejs69/postprocessing/RenderPass.js"></script>
+    <script src="../../js/threejs69/shaders/CopyShader.js"></script>
+    <script src="../../js/threejs69/shaders/HorizontalTiltShiftShader.js"></script>
+    <script src="../../js/threejs69/shaders/VerticalTiltShiftShader.js"></script>
+    <script src="../../js/threejs69/loaders/deprecated/SceneLoader.js"></script>
+
+    <!--<script src="assets/js/CubeCamera.js"></script>-->
+
+
+
+
+    <script type="x-shader/x-vertex" id="leafVShader">
+        varying vec2 vUv;
+        varying vec3 vColor;
+
+        void main(void){
+
+           #ifdef USE_COLOR
+
+                #ifdef GAMMA_INPUT
+
+                    vColor = color * color;
+
+                #else
+
+                    vColor = color;
+
+                #endif
+
+            #endif
+
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+
+        }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="leafFShader">
+        varying vec2 vUv;
+        uniform sampler2D textuer;
+        varying vec3 vColor;
+
+        void main(void) {
+
+            vec4 c = texture2D( textuer, vUv );
+            c.rgb *= vColor;
+            if( c.a < .1 ){
+                discard;
+            }else{
+                gl_FragColor = c;
+            }
+
+        }
+
+    </script>
+
+    <script type="x-shader/x-vertex" id="reflect-vshader">
+    uniform bool edge;
+    varying vec2 vUv;
+    varying vec3 vEyeDirection;
+    varying vec3 vLightDirection;
+    varying mat3 wMat;
+    varying vec3 cameraToVertex;
+
+    varying vec3 reflect1;
+    varying vec3 wNormal;
+    varying vec3 wPosition;
+
+    uniform vec3 lightPos;
+    uniform sampler2D texture;
+    uniform vec3 eyePosition;
+
+    
+    void main(void) {
+
+        vUv = uv;
+        
+        vec3 vNormal = normalize(normalMatrix * normal);
+        wPosition = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
+        vec3 vEyePos = ( viewMatrix * vec4( eyePosition, 1.0 ) ).xyz;
+        vec3 vLightPos = ( viewMatrix * vec4( lightPos, 1.0 ) ).xyz;
+        vec3 eye = vEyePos - wPosition;
+        vec3 light = vLightPos - wPosition;
+
+
+        //以下AとBは同じ値になる
+
+        //A
+        // vec3 wNormal = mat3( modelMatrix[ 0 ].xyz, modelMatrix[ 1 ].xyz, modelMatrix[ 2 ].xyz ) * normal;
+        // wNormal = normalize( wNormal );
+
+        //B
+        wNormal = vec3( modelMatrix * vec4( normal, .0 ) );
+        
+        cameraToVertex = normalize( wPosition - eyePosition );
+
+
+        reflect1 = reflect( cameraToVertex, normal );
+
+
+        vec3 n = normalize( vNormal );   //z
+        vec3 t = normalize( cross( n, vec3( 0.0, 1.0, 0.0 )));//x
+        vec3 b = cross( n, t );//y
+
+        vec3 wN = normal;   //z
+        vec3 wT = cross( wN, vec3( 0.0, 1.0, 0.0 ) );//x
+        vec3 wB = cross( wN, wT );//y
+        wMat = mat3( wT, wB, wN );
+
+        // vEyeDirection.x = dot( t, eye );
+        // vEyeDirection.y = dot( b, eye );
+        // vEyeDirection.z = dot( n, eye );
+        // vEyeDirection = normalize( vEyeDirection );
+
+        vLightDirection.x = dot( t, light );
+        vLightDirection.y = dot( b, light );
+        vLightDirection.z = dot( n, light );
+        vLightDirection = normalize( vLightDirection );
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+    }
+    </script>
+ 
+    <script type="x-shader/x-fragment" id="reflect-fshader">
+    //#extension GL_EXT_shader_texture_lod : enable
+
+    uniform sampler2D texture;
+    uniform sampler2D normalTexture;
+    uniform samplerCube cubeTexture;
+    uniform vec3 eyePosition;
+    uniform float maxLodLevel;
+
+    varying vec2 vUv;
+    varying vec3 vEyeDirection;
+    varying vec3 vLightDirection;
+    varying vec3 cameraToVertex;
+    varying mat3 wMat;
+    varying vec3 wNormal;
+    varying vec3 wPosition;
+
+    varying vec3 reflect1;
+
+
+
+    float rand(vec2 co){
+        return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+    }
+
+    float rand(vec3 co){
+        return rand(vec2(rand(co.xy), co.z));
+    }
+
+    float rand(vec4 co){
+        return rand(vec2(rand(co.xyz), co.w));
+    }
+    vec3 rand3(vec3 co){
+        return vec3(rand(vec4(co, 0.0)), rand(vec4(co, 1.0)), rand(vec4(co, 2.0)));
+    }
+    
+    void main(void) {
+
+        vec3 vNormal2 = normalize(texture2D( normalTexture, vUv) * 2.0 - 1.0).rgb;
+        float diffuse = clamp(dot( vNormal2, vLightDirection), 0.1, 1.0);
+
+        vec3 wNormal2 = wMat * vNormal2;
+        vec3 reflect0 = reflect( cameraToVertex, wNormal2 );
+
+        //vec4 tex = texture2D( texture, vUv );
+        vec3 diffN = normalize( wNormal + rand3(wPosition.xyz) * 0.001);
+        vec4 diffuse2 = textureCube( cubeTexture, diffN, 10000.0 );
+        float mipLevel = textureCube( cubeTexture, reflect1).a * maxLodLevel;
+        vec3 specular = textureCube( cubeTexture, reflect1, log2( 0.01 * pow(2.0, maxLodLevel)) - mipLevel ).xyz;
+
+        //gl_FragColor = vec4( cubeTex.xyz * diffuse, 1.0 );
+        gl_FragColor = diffuse2 + vec4( specular, 1. ) * .05;
+        
+    }
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="shadow-fshader">
+    #ifdef USE_LOGDEPTHBUF
+
+    uniform float logDepthBufFC;
+
+    #ifdef USE_LOGDEPTHBUF_EXT
+
+        #extension GL_EXT_frag_depth : enable
+        varying float vFragDepth;
+
+    #endif
+
+    #endif
+
+
+    uniform sampler2D textuer;
+
+    varying vec2 vUv;
+
+
+    vec4 pack_depth( const in float depth ) {
+        const vec4 bit_shift = vec4( 256.0 * 256.0 * 256.0, 256.0 * 256.0, 256.0, 1.0 );
+        const vec4 bit_mask = vec4( 0.0, 1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0 );
+        vec4 res = mod( depth * bit_shift * vec4( 255 ), vec4( 256 ) ) / vec4( 255 );
+        res -= res.xxyz * bit_mask;
+        return res;
+    }
+    void main() {
+    #if defined(USE_LOGDEPTHBUF) && defined(USE_LOGDEPTHBUF_EXT)
+
+        gl_FragDepthEXT = log2(vFragDepth) * logDepthBufFC * 0.5;
+
+    #endif
+
+        vec4 c = texture2D( textuer, vUv );
+        if( c.a < .1 ){
+            discard;
+        }else{
+
+            #ifdef USE_LOGDEPTHBUF_EXT
+                gl_FragData[ 0 ] = pack_depth( gl_FragDepthEXT );
+            #else
+                gl_FragData[ 0 ] = pack_depth( gl_FragCoord.z );
+            #endif
+        }
+    }
+    </script>
+
+
+
+
+</head>
+<body>
+
+    <script>
+
+        var stageW = window.innerWidth;
+        var stageH = window.innerHeight;
+
+        var scene;
+        var renderer;
+        var camera;
+        var cameraFov = 50;
+        var cubeCamera;
+        var light;
+
+        var cubeTexture;
+        var texture;
+        var normalTexture;
+
+        var reflectMaterial;
+        var leafMaterial;
+
+        var textureLoadCount = 0;
+
+        var tonakaiMesh;
+        var animations = {};
+
+        var groundMesh;
+        var tree0Mesh;
+        var leaf0Mesh;
+        var tree1Mesh;
+        var leaf1Mesh;
+
+        var textuers = {};
+
+        var composer;
+
+
+
+
+
+
+        $( window ).load(function(){
+
+            initScene();
+            initTexture();
+
+            setInterval( cameraPositionInterval, 1500 );
+
+            $( window ).resize( resize );
+
+            //alert( Math.log2( 0.25 * Math.pow( 2, 3 ) ) );
+        });
+
+
+
+        function initScene(){
+
+            scene = new THREE.Scene();
+
+            renderer = new THREE.WebGLRenderer();
+            //renderer.context.getExtension('EXT_shader_texture_lod');
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMapEnabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            var aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera( cameraFov, aspect, .1, 200);
+            camera.position.x = 12;
+            camera.position.y = 5;
+            camera.position.z = -12;
+            camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
+
+
+            cubeCamera = new THREE.CubeCamera( .1, 512, 512 );
+            cubeCamera.renderTarget.minFilter = THREE.LinearMipMapLinearFilter;
+            //cubeCamera.setRenderTargetsMinFilter( THREE.LinearMipMapLinearFilter );
+            cubeCamera.position.set( 0, 1.5, 0 );
+            scene.add( cubeCamera );
+
+            
+            light = new THREE.DirectionalLight(0xffffff, .5);
+            light.castShadow = true;
+            light.shadowMapWidth = 1024;//影の描画用テクスチャの横解像度
+            light.shadowMapHeight = 1024;//影の描画用テクスチャの縦解像度
+            light.shadowCameraNear = 1; //四角錐台の上面の位置
+            light.shadowCameraFar = 30; //四角錐台の下面の位置
+            light.shadowCameraLeft = -10;    //描画範囲左範囲
+            light.shadowCameraRight = 10;    //描画範囲右範囲
+            light.shadowCameraTop = 10;  //描画範囲上範囲
+            light.shadowCameraBottom = -10;  //描画範囲下範囲
+            light.position.set( 4, 10, -2);
+            light.castShadow = true;
+            scene.add(light);
+
+            var lightMesh = new THREE.Mesh(new THREE.SphereGeometry(.5, 10, 10), new THREE.MeshBasicMaterial({color:0xff0000, transparent:true}));
+            lightMesh.position.copy(light.position);
+            //scene.add(lightMesh);
+
+        }
+
+
+
+        function initTexture(){
+
+            var cubeImgs = [
+                    'assets/images/cube/posx.jpg',
+                    'assets/images/cube/negx.jpg',
+                    'assets/images/cube/posy.jpg',
+                    'assets/images/cube/negy.jpg',
+                    'assets/images/cube/posz.jpg',
+                    'assets/images/cube/negz.jpg',
+                ];
+            cubeTexture = THREE.ImageUtils.loadTextureCube( cubeImgs, THREE.UVMapping, textureLoadCheck );
+
+            texture = THREE.ImageUtils.loadTexture('assets/images/water.jpg', THREE.UVMapping, textureLoadCheck );
+            texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+            normalTexture = THREE.ImageUtils.loadTexture('assets/images/water_normal.jpg', THREE.UVMapping, textureLoadCheck );
+            normalTexture.wrapS = normalTexture.wrapT = THREE.RepeatWrapping;
+
+            textuers[ 'tree0' ] = THREE.ImageUtils.loadTexture('assets/images/tree0.jpg', THREE.UVMapping, textureLoadCheck);
+            textuers[ 'tree1' ] = THREE.ImageUtils.loadTexture('assets/images/tree1.jpg', THREE.UVMapping, textureLoadCheck);
+            textuers[ 'leaf' ] = THREE.ImageUtils.loadTexture('assets/images/leaf0.png', THREE.UVMapping, textureLoadCheck );
+
+            particleTexture = THREE.ImageUtils.loadTexture('assets/images/png_ball.png', THREE.UVMapping, textureLoadCheck );
+        }
+
+
+        function textureLoadCheck(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 7 ){
+
+                initMaterial();
+                initObject();
+                initComposer();
+                setInterval( animate, 1000 / 30 );
+
+
+
+                //cubeTexture.image = cubeCamera.renderTargets;
+                //cubeTexture = generateCubeMap( cubeTexture );
+            }
+
+        }
+
+
+        function initMaterial(){
+
+            cubeTexture = generateCubeMap( cubeTexture );
+
+            var maxLodLevel = getMaxLodLevel( cubeTexture.image[0].width, cubeTexture.image[0].height);
+
+            reflectMaterial = new THREE.ShaderMaterial({
+                vertexShader: document.getElementById('reflect-vshader').textContent,
+                fragmentShader: document.getElementById('reflect-fshader').textContent,
+                
+                uniforms: {
+                    texture: {
+                        type: 't',
+                        value: texture
+                    },
+                    normalTexture :{
+                        type : 't',
+                        value : normalTexture
+                    },
+                    lightPos: {
+                        type: 'v3',
+                        value: light.position.clone()
+                    },
+                    eyePosition:{
+                        type: 'v3',
+                        value: camera.position.clone()
+                    },
+                    time:{
+                        type:'f',
+                        value:0.0
+                    },
+                    cubeTexture:{
+                        type:'t',
+                        value:cubeCamera.renderTarget 
+                        //value:cubeTexture
+                    },
+                    maxLodLevel:{
+                        type:'f',
+                        value:maxLodLevel
+                    }
+                },
+
+                //shading:THREE.FlatShading
+            });
+
+
+            leafMaterial = new THREE.ShaderMaterial({
+                fragmentShader: $( '#leafFShader' ).text(),
+                vertexShader: $( '#leafVShader' ).text(),
+                uniforms:{
+                    textuer:{
+                        type:'t',
+                        value:textuers[ 'leaf' ]
+                    }
+                },
+                transparent:true,
+                side:THREE.DoubleSide,
+                vertexColors:THREE.VertexColors
+            });
+        }
+
+
+        // ミップマップ数を計算
+        function getMaxLodLevel(width, height){
+            
+            return Math.log2(Math.max(width,height));
+        
+        }
+
+        function getPixel( data, w, x, y ) {
+            
+            var position = ( x + w * y ) * 4;
+            return new THREE.Vector4(data[position],data[position + 1],data[position + 2],data[position + 3]);
+        
+        }
+
+
+        function generateCubeMap( cubeMap ) {
+
+            var gl = renderer.context;
+        console.log( renderer );
+            
+            cubeMap.image.__webGLTextureCube = gl.createTexture();
+        console.log( cubeMap.image.__webGLTextureCube );
+            // three.jsのオブジェクトからテクスチャIDを取得する
+            //var textureProperties = renderer.properties.get( cubeMap );
+            //gl.bindTexture( gl.TEXTURE_CUBE_MAP, textureProperties.__image__webglTextureCube );
+            gl.bindTexture( gl.TEXTURE_CUBE_MAP, cubeMap.image.__webGLTextureCube );
+            var width = cubeMap.image[0].width;
+            var height = cubeMap.image[0].height;
+
+            var maxLevel = getMaxLodLevel( width, height );
+            // 各面に対してミップマップテクスチャを生成する
+            for(var face = 0; face < 6; face++) {
+                var faceImage = getImageData(cubeMap.image[face]);
+                var prevMipLevelInfo = { image: faceImage.data, width: width, height: height };
+                for(var level = 0; level <= maxLevel; level++) {
+                    var mipLevelInfo = generateMipLevel(prevMipLevelInfo, level, maxLevel)
+                    gl.texImage2D( gl.TEXTURE_CUBE_MAP_POSITIVE_X + face, level, gl.RGBA, mipLevelInfo.width, mipLevelInfo.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, mipLevelInfo.image );
+                    prevMipLevelInfo = mipLevelInfo;
+                }
+            }
+
+            return cubeMap;
+        }
+
+
+        // 正方形POTテクスチャ専用
+        function generateMipLevel(prevMipLevelInfo, targetLevel, maxLevel) {
+            var mipWidth = prevMipLevelInfo.width;
+            var mipHeight = prevMipLevelInfo.height;
+            // ミップマップレベル0以外はテクスチャを半分に縮小する
+            if(targetLevel != 0) {
+                mipWidth /= 2;
+                mipHeight /= 2;
+            }
+            var mipLevelImage = new Uint8Array(mipWidth * mipHeight * 4);
+            for(var i = 0; i < mipHeight; i++) {
+                for(var j = 0; j < mipWidth; j++) {
+                    var col = null;
+                    if (targetLevel == 0) {
+                        // ミップマップレベル0は元画像をそのまま利用する
+                        col = getPixel(prevMipLevelInfo.image, mipWidth, j, i);
+                    } else {
+                        // その他のミップマップは2x2ボックスフィルタで縮小する
+                        col = getPixel(prevMipLevelInfo.image, mipWidth * 2, j * 2, i * 2).add(
+                        getPixel(prevMipLevelInfo.image, mipWidth * 2, j * 2 + 1, i * 2)).add(
+                        getPixel(prevMipLevelInfo.image, mipWidth * 2, j * 2, i * 2 + 1)).add(
+                        getPixel(prevMipLevelInfo.image, mipWidth * 2, j * 2 + 1, i * 2 + 1)).multiplyScalar(0.25);
+                    }
+                    var position = ( j + mipWidth * i ) * 4;
+                    mipLevelImage[position + 0] = col.x;
+                    mipLevelImage[position + 1] = col.y;
+                    mipLevelImage[position + 2] = col.z;
+                    // ミップマップレベルをアルファにマッピング
+                    mipLevelImage[position + 3] = targetLevel / maxLevel * 255.0;
+                }
+            }
+            return { image: mipLevelImage, width: mipWidth, height: mipHeight };
+        }
+
+
+
+        function getImageData( image ) {
+
+            var canvas = document.createElement( 'canvas' );
+            canvas.width = image.width;
+            canvas.height = image.height;
+
+            var context = canvas.getContext( '2d' );
+            context.drawImage( image, 0, 0 );
+
+            return context.getImageData( 0, 0, image.width, image.height );
+        }
+
+
+        var iblMesh;
+        var cubeMesh;
+        function initObject(){
+
+            iblMesh = new THREE.Mesh(new THREE.SphereGeometry( 1, 20, 20 ), reflectMaterial);
+            iblMesh.position.set( 0, 1.5, 0 );
+            iblMesh.castShadow = true;
+            scene.add( iblMesh );
+
+            var url = 'assets/models/tonakai.js';
+            var jsonLoader = new THREE.JSONLoader();
+            jsonLoader.load(url, tonakaiLoadCompHandler );
+
+            var url = 'assets/models/ground.js';
+            jsonLoader.load(url, groundLoadCompHandler );
+
+            var url = 'assets/models/assets0.js';
+            var loader = new THREE.SceneLoader();
+            loader.load(url, bgLoadComp );
+
+
+
+
+            var material2 = new THREE.MeshBasicMaterial( { envMap: cubeCamera.renderTarget/*, side: THREE.BackSide*/ } );
+            var geometry = new THREE.BoxGeometry( 1, 1, 1, 4, 4, 4 );
+            var geometry = new THREE.SphereGeometry( 1, 20, 20);
+            cubeMesh = new THREE.Mesh( geometry, material2 );
+            cubeMesh.position.set( 0, 1.5, 0 );
+            cubeMesh.castShadow = true;
+            //scene.add( cubeMesh );
+
+
+
+            //skybox
+            var skyShader = THREE.ShaderLib["cube"];
+            skyShader.uniforms["tCube"].value = cubeTexture;
+            var material1 = new THREE.ShaderMaterial( {
+              fragmentShader: skyShader.fragmentShader,
+              vertexShader: skyShader.vertexShader,
+              uniforms: skyShader.uniforms, 
+              depthWrite: false, 
+              side: THREE.BackSide
+            });
+            skyboxMesh = new THREE.Mesh( new THREE.BoxGeometry( 100, 100, 100, 4, 4, 4 ), material1 );
+            scene.add( skyboxMesh );
+        }
+
+
+
+        function getSourceIndexsAndVertices( _length, geometry ){
+            
+            var vertices = [];
+            var indexs = [];
+
+            for( var i = 0; i < _length; i++ ){
+                if( geometry.vertices[i] ){
+                    var v = geometry.vertices[i].clone();
+                }else{
+                    v = new THREE.Vector3();
+                }
+                vertices[i] = v.clone();
+                indexs[i] = i;
+            }
+
+            return { vertices:vertices, indexs:indexs };
+
+        }
+
+
+
+
+        function setCamera2DPosition( w, h ){
+
+            camera.position.x = 0;
+            camera.position.y = 0;
+            var cameraRadius = ( h / 2 ) / Math.tan(( cameraFov * Math.PI / 180) / 2);
+            camera.position.z = cameraRadius;
+
+            camera.lookAt( new THREE.Vector3(0,0,0) );
+
+        }
+
+
+        function tonakaiLoadCompHandler( geometry, materials ){
+
+            var material = new THREE.MeshLambertMaterial({
+                wireframe:false,
+                shading:THREE.FlatShading,
+                envMap:cubeTexture,
+                reflectivity: 1,
+                emissive:0xffffff 
+            });
+            //var material = reflectMaterial;
+            material.skinning = true;
+            tonakaiMesh = new THREE.SkinnedMesh( geometry, material );
+            tonakaiMesh.position.x = 1;
+            tonakaiMesh.scale.multiplyScalar( .2 );
+            tonakaiMesh.castShadow = true;
+            //scene.add( tonakaiMesh );
+
+            animations[ 'default' ] = new THREE.Animation( tonakaiMesh, geometry.animations[0] );
+            animations[ 'default' ].play();
+
+        }
+
+
+        function groundLoadCompHandler( geometry, materials ){
+
+            var material = new THREE.MeshBasicMaterial({ map:materials[0].map });
+            groundMesh = new THREE.SkinnedMesh( geometry, material );
+            groundMesh.scale.multiplyScalar( .5 );
+            groundMesh.receiveShadow = true;
+            scene.add( groundMesh );
+
+        }
+
+
+        function bgLoadComp( result ){
+
+            var shadowMaterial = new THREE.ShaderMaterial({
+                vertexShader: $( '#leafVShader' ).text(),
+                fragmentShader: $( '#shadow-fshader' ).text(),
+                uniforms: leafMaterial.uniforms,
+                alphaTest:.1
+            });
+
+
+            var s = new THREE.Vector3(.3, .3, .3);
+            var p = new THREE.Vector3( -1.5, 0, -2 );
+            tree0Mesh = getMesh( 'tree0', result, s, p );
+            tree0Mesh.castShadow = true;
+            scene.add( tree0Mesh );
+
+            s = new THREE.Vector3(.4, .4, .4);
+            p = new THREE.Vector3( -1.5, .5, -2 );
+            leaf0Mesh = getMesh( 'leaf0', result, s, p );
+            leaf0Mesh.material = leafMaterial;
+            leaf0Mesh.customDepthMaterial = shadowMaterial
+            leaf0Mesh.castShadow = true;
+            scene.add( leaf0Mesh );
+
+
+
+            var s = new THREE.Vector3(.6*1.3, .6*1.3, .6*1.3);
+            var p = new THREE.Vector3( -1.5, 0, 2 );
+            tree1Mesh = getMesh( 'tree3', result, s, p );
+            tree1Mesh.castShadow = true;
+            scene.add( tree1Mesh );
+
+            s = new THREE.Vector3(.25*1.3, .25*1.3, .25*1.3);
+            p = new THREE.Vector3( -1.1, -.3, 2 );
+            leaf1Mesh = getMesh( 'leaf3', result, s, p );
+            leaf1Mesh.material = leafMaterial;
+            leaf1Mesh.customDepthMaterial = shadowMaterial
+            leaf1Mesh.castShadow = true;
+            scene.add( leaf1Mesh );
+
+        }
+
+
+        function getMesh( key, result, s, p ){
+
+            var mesh = result.objects[ key ];
+            mesh.material = new THREE.MeshBasicMaterial({ alphaTest:.1, side:THREE.DoubleSide });
+            mesh.material.needsUpdate = true;
+            if( key == 'leaf0' ) key = 'leaf';
+            if( key == 'tree3' ) key = 'tree1';
+            textuer = textuers[ key ];
+            mesh.material.map = textuer;
+            mesh.position.copy( p );
+            mesh.scale.copy( s );
+            mesh.updateMatrix();
+
+            return mesh;
+
+        }
+
+
+        var hblur;
+        var vblur;
+        var blur = { bluriness:6 };
+        function initComposer(){
+
+            composer = new THREE.EffectComposer( renderer );
+            composer.addPass(new THREE.RenderPass(scene, camera));
+
+
+            hblur = new THREE.ShaderPass(THREE.HorizontalTiltShiftShader);
+            vblur = new THREE.ShaderPass(THREE.VerticalTiltShiftShader);
+            hblur.uniforms['h'].value = blur.bluriness / stageW;
+            vblur.uniforms['v'].value = blur.bluriness / stageH;
+            hblur.uniforms['r'].value = vblur.uniforms['r'].value = .6;
+            composer.addPass(hblur);
+            composer.addPass(vblur);
+
+            toScreenPass = new THREE.ShaderPass(THREE.CopyShader);
+            toScreenPass.renderToScreen = true;
+            composer.addPass( toScreenPass );
+
+        }
+
+
+        function cameraPositionInterval(){
+
+            cameraTargetY = 5 + 2 * Math.random() - 1;
+
+        }
+
+
+
+        var rot = 0;
+        var rotY = 0;
+        var radius = 12;
+        var start = Date.now();
+        var cameraTargetY = 5;
+        function animate() {
+
+            var time = ( Date.now() - start );
+
+
+            rot += .1;
+            if( rot >= 360 ) rot = 0;
+            var radian = rot * Math.PI / 180;
+
+
+            var x = Math.cos( radian ) * radius;
+            var z = Math.sin( radian ) * radius;
+            camera.position.x = x;
+            camera.position.y += ( cameraTargetY - camera.position.y ) * .02;
+            camera.position.z = z;
+            camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
+
+            if( tonakaiMesh ){
+                THREE.AnimationHandler.update( .03 );
+            }
+
+            renderer.render(scene, camera);
+            if( composer ) composer.render(.1);
+
+
+            iblMesh.visible = false;
+            cubeMesh.visible = false;
+            cubeCamera.updateCubeMap( renderer, scene );
+            iblMesh.visible = true;
+            cubeMesh.visible = true;
+
+            reflectMaterial.uniforms.time.value = .0001 * time;
+            //mesh.rotation.y += .01;
+
+            reflectMaterial.uniforms.eyePosition.value = camera.position.clone();
+        }
+
+
+        function resize(){
+
+            stageW = window.innerWidth;
+            stageH = window.innerHeight;
+            camera.aspect = stageW / stageH;
+            camera.updateProjectionMatrix();
+            renderer.setSize(stageW, stageH);
+
+        }
+
+
+    </script>
+
+
+
+</body>
+</html>
