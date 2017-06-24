@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>smith talk</title>
+
+        <meta name="viewport" content="width=640, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body{
+				margin:0;
+				background-color: #d9dcd1;
+				overflow: hidden;
+			}
+		</style>
+    <script src="../../js/three.min.js"></script>
+	<script src="../../js/loaders/BinaryLoader.js"></script>
+	<script src="../../js/loaders/OBJLoader.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+    <script type="text/javascript" src="../../js/jquery.easing.1.3.js"></script>
+
+
+
+    <script src="../../js/postprocessing/EffectComposer.js"></script>
+    <script src="../../js/postprocessing/MaskPass.js"></script>
+    <script src="../../js/postprocessing/RenderPass.js"></script>
+    <script src="../../js/postprocessing/ShaderPass.js"></script>
+    <script src="../../js/shaders/CopyShader.js"></script>
+    <script src="../../js/shaders/HorizontalTiltShiftShader.js"></script>
+    <script src="../../js/shaders/VerticalTiltShiftShader.js"></script>
+    <script src="../../js/shaders/HorizontalBlurShader.js"></script>
+    <script src="../../js/shaders/VerticalBlurShader.js"></script>
+        
+    <script src="../../js/ShaderParticles.min.js"></script>
+		
+	
+		
+	<script type="x-shader/x-vertex" id="vshader">
+		
+    	uniform vec3 lightPos;
+        uniform float rotate;
+        uniform float rotateX;
+        uniform float oldRotate;
+        uniform float oldRotateX;
+    	uniform vec3 eyePos;
+
+
+        varying vec3 vNormal;
+        varying vec2 vUv;
+        varying vec3 diffuse;
+        varying float specular;
+
+        varying float vDot;
+
+
+        varying vec3 cameraToVertex;
+        varying vec3 wNormal;
+        varying vec3 reflectVec;
+
+        vec3 vEyeDirection;
+        varying vec3 vLightDirection;
+        varying vec3 specularH;
+
+
+        vec3 twist(vec3 p, float power, float rotX){
+            float s = sin(power * p.y);
+            float c = cos(power * p.y);
+            mat3 m = mat3(
+                  c, 0.0,  -s,
+                0.0, 1.0, 0.0,
+                  s, 0.0,   c
+            );
+            
+            float per = (p.y - .1) / .1;
+            if( p.y < .1 ) per = .0;
+            if( per > .7 ) per = .7;
+            float s2 = sin(-rotX * per);
+            float c2 = cos(-rotX * per);
+            mat3 m2 = mat3(
+                1.0,   .0, 0.0,
+                 .0,   c2, -s2,
+                0.0, s2, c2
+            );
+            return m * m2 * p;
+        }
+
+
+        vec3 twistNormal( vec3 n, vec3 p, float power, float rotX){
+            float s = sin(power * p.y);
+            float c = cos(power * p.y);
+            mat3 m = mat3(
+                  c, 0.0,  -s,
+                0.0, 1.0, 0.0,
+                  s, 0.0,   c
+            );
+            
+            float per = (p.y - .1) / .1;
+            if( p.y < .1 ) per = .0;
+            if( per > .7 ) per = .7;
+            float s2 = sin(-rotX * per);
+            float c2 = cos(-rotX * per);
+            mat3 m2 = mat3(
+                1.0,   .0, 0.0,
+                 .0,   c2, -s2,
+                0.0, s2, c2
+            );
+            return m * m2 * n;
+        }
+
+
+		float getDiffuse( vec3 p, vec3 n, vec3 lightPos2 ){
+
+	        vec3 normal2 = normalize(normalMatrix * n);
+	        vec4 vLightPos = viewMatrix * vec4( lightPos2, 1.0 );
+	        vec4 mvPos = modelViewMatrix * vec4( p, 1.0 );
+	        vec3 s = normalize( vLightPos.xyz - mvPos.xyz );
+	        float d = max(dot(s, normal2), 0.0);
+
+	        return d;
+		}
+
+        void setNomal(){
+            vec3 wNormal = normalize(normalMatrix * vNormal);
+            vec3 pos = ( modelMatrix * vec4( position, .0 ) ).xyz;
+            vec3 vEyePos = ( viewMatrix * vec4( eyePos, .0 ) ).xyz;
+            vec3 vLightPos = ( viewMatrix * vec4( lightPos, .0 ) ).xyz;
+            vec3 eye = vEyePos - pos;
+            vec3 light = vLightPos - pos;
+
+            vec3 n = normalize( wNormal );   //z
+            vec3 t = normalize( cross( wNormal, vec3(0.0, 1.0, 0.0)));//x
+            vec3 b = cross( n, t );//y
+
+            vEyeDirection.x = dot( t, eye );
+            vEyeDirection.y = dot( b, eye );
+            vEyeDirection.z = dot( n, eye );
+            vEyeDirection = normalize( vEyeDirection );
+
+            vLightDirection.x = dot( t, light );
+            vLightDirection.y = dot( b, light );
+            vLightDirection.z = dot( n, light );
+            vLightDirection = normalize( vLightDirection );
+        }
+
+
+        vec3 inverseTransformDirection( in vec3 normal, in mat4 matrix ) {
+
+            return normalize( ( vec4( normal, 0.0 ) * matrix ).xyz );
+
+        }
+
+
+		void main(){
+
+      		vUv = uv;
+
+            vNormal = normal;
+            vNormal = twistNormal( vNormal, position, rotate, rotateX );
+            vec3 p = twist( position, rotate, rotateX );
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( p, 1.0 );
+
+
+			diffuse = vec3( getDiffuse( p, vNormal, lightPos ) );
+            vDot = getDiffuse( p, vNormal, eyePos );
+
+            vec4 mvPos = modelMatrix * vec4( p, 1.0 );
+            cameraToVertex = normalize( mvPos.xyz - eyePos );
+
+            setNomal();
+
+        	vec3 s = normalize( lightPos );
+	        vec3 v = normalize( eyePos );
+	        specularH = normalize( v + s );
+		}
+		</script>
+		
+		<script type="x-shader/x-fragment" id="fshader">
+			
+		uniform sampler2D texture;
+        uniform sampler2D normalTexture;
+        uniform sampler2D specularTexture;
+        uniform sampler2D kibanTexture;
+        uniform samplerCube cubeTexture;
+        uniform float kibanAlpha;
+		
+		varying vec3 vNormal;
+		varying vec2 vUv;
+		varying vec3 diffuse;
+		varying float specular;
+	
+        varying float vDot;	
+
+        varying vec3 cameraToVertex;
+        varying vec3 wNormal;
+        varying vec3 reflectVec;
+		
+         varying vec3 vLightDirection;
+         varying vec3 specularH;
+
+        vec3 inverseTransformDirection( in vec3 normal, in mat4 matrix ) {
+
+            return normalize( ( vec4( normal, 0.0 ) * matrix ).xyz );
+
+        }
+
+		void main(void){
+
+            vec3 mNormal = (texture2D( normalTexture, vUv ) * 2.0 - 1.0 ).rgb;
+            float diffuse2 = clamp(dot(mNormal, vLightDirection) * 1.2, .1, 1.0);
+
+            vec3 specularTex = (texture2D( specularTexture, vUv ) ).rgb;
+            float specular = specularTex.r * pow( max( dot( specularH, mNormal ), 0.0 ), 3.0 );
+
+            vec4 kibanTex = texture2D( kibanTexture, vUv );
+
+            vec3 wNormal2 = inverseTransformDirection( mNormal, viewMatrix );
+            vec3 reflect0 = reflect( cameraToVertex, wNormal2 );
+            vec4 cubeTex = textureCube( cubeTexture, reflect0 );
+			
+			vec4 tex = texture2D( texture, vUv ) + kibanTex * kibanAlpha;
+            vec3 outLine = vec3(.0);
+            if( vDot < .3 ) outLine = vec3( .5 );
+			gl_FragColor = vec4( tex.rgb * diffuse2  + vec3( specular ), 1.0 ) + vec4( cubeTex.xyz*.8, 1. );
+			
+		}
+		</script>
+
+
+    <script type="x-shader/x-vertex" id="rgb-vshader">
+
+        varying vec2 vUv;
+
+        void main(void){
+        
+            vUv = uv; 
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+        }
+    </script>
+
+
+
+    <script type="x-shader/x-fertex" id="rgb-fshader">
+
+        uniform sampler2D tDiffuse;
+        uniform sampler2D graTexture;
+        uniform vec2 stageSize;
+        varying vec2 vUv;
+
+            
+        void main(void){
+
+            float offset = 1. / stageSize.x;
+
+            vec4 diffuse = texture2D( tDiffuse, vUv );
+            vec4 diffuse2 = texture2D( tDiffuse, vUv + offset );
+
+            vec4 graTex = texture2D( graTexture, vUv );
+            graTex.r = 1. - graTex.r;
+            graTex.r += .45;
+            if( graTex.r > 1. ) graTex.r = 1.;
+
+            vec3 c = vec3( diffuse.r, diffuse.g, diffuse2.b );
+            gl_FragColor = vec4( c, 1. ) * vec4( vec3( graTex.r ), 1.);
+
+        }
+
+    </script>
+
+		
+</head>
+<body>
+
+
+<script>
+
+	var MYAPP = {};
+
+
+
+
+    $( window ).load(function(){
+        new MYAPP.Main();
+    });
+
+
+    MYAPP.Main = (function(){
+
+        var scene;
+        var renderer;
+        var camera;
+        var cubeCamera;
+        var radius = 3;
+        var cameraY = 2;
+        var light;
+
+        var clock = new THREE.Clock();
+
+        var stageWidth = window.innerWidth;
+        var stageHeight = window.innerHeight;
+        var touchManager;
+
+
+        var delta;
+
+        var raycaster;
+        var raycastManager;
+        var rayCheckTime = 0;
+        var maxRayCheckTime = .3;
+
+        var animationNames = [];
+        var animationLength = 0;
+        var nowAnimation = '';
+
+        var downFlag = false;
+        var animateObj = { rotateX:0 };
+
+        var particleGroup;
+
+        var faceMesh;
+        var material;
+        var groundMesh;
+        var composer;
+
+
+
+        function Main(){
+
+            touchManager = new MYAPP.TouchManager();
+            touchManager.setTouchStartFunc( downHandler.bind( this ) );
+            touchManager.setTouchMoveFunc( moveHandler.bind( this ) );
+            touchManager.setTouchEndFunc( upHandler.bind( this ) );
+            MYAPP.touch.x = stageWidth*.5;
+
+            initScene();
+            initObject();
+            initParticle();
+            initComposer();
+
+            animate();
+            $( window ).resize( resize );
+
+        }
+
+
+    	function downHandler(){
+    	}
+
+
+    	function moveHandler( e ){
+    		
+            e.preventDefault();
+
+            rayCheckTime += delta;
+            if ( maxRayCheckTime > rayCheckTime )return;
+            rayCheckTime = 0;
+    		
+    	}
+
+
+    	function upHandler(){
+    	}
+
+
+        function initScene(){
+
+            scene = new THREE.Scene();
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize( stageWidth, stageHeight);
+            renderer.setClearColor ( 0xd9dcd1, 1 );
+            document.body.appendChild(renderer.domElement);
+
+            var fov = 100;
+            var aspect = stageWidth / stageHeight;
+            camera = new THREE.PerspectiveCamera(fov, aspect, .01, 1000);
+            camera.position.y = cameraY;
+            camera.position.z = radius;
+            camera.lookAt( new THREE.Vector3( 0, 2.5, 0 ) );
+
+
+            cubeCamera = new THREE.CubeCamera( .1, 100, 512 );
+            cubeCamera.renderTarget.minFilter = THREE.LinearMipMapLinearFilter;
+            scene.add( cubeCamera );
+
+            
+            light = new THREE.DirectionalLight(0xffffff, .9);
+            light.position.set( 0, 10, 5);
+            light.shadowCameraNear = .1;
+            light.shadowCameraFar = 50;
+            light.shadowCameraLeft = -5;
+            light.shadowCameraRight = 5;
+            light.shadowCameraTop = 5;
+            light.shadowCameraBottom = -5;
+            scene.add(light);
+
+        }
+
+
+        function initObject(){
+
+            var kibanTexture = THREE.ImageUtils.loadTexture('img/kiban0.jpg');
+            kibanTexture.wrapS = kibanTexture.wrapT = THREE.RepeatWrapping; 
+    		var diffuseTexture = THREE.ImageUtils.loadTexture('models/leeperrysmith/Map-COL.jpg');
+    		diffuseTexture.wrapS = diffuseTexture.wrapT = THREE.RepeatWrapping; 
+            var normalTexture = THREE.ImageUtils.loadTexture('models/leeperrysmith/Infinite-Level_02_Tangent_SmoothUV.jpg');
+            normalTexture.wrapS = normalTexture.wrapT = THREE.RepeatWrapping; 
+            var specularTexture = THREE.ImageUtils.loadTexture('models/leeperrysmith/Map-SPEC.jpg');
+            specularTexture.wrapS = specularTexture.wrapT = THREE.RepeatWrapping; 
+            material = new THREE.ShaderMaterial({
+    			vertexShader: document.getElementById('vshader').textContent,
+    			fragmentShader: document.getElementById('fshader').textContent,
+    			uniforms: {
+    				texture:{
+    					type: 't',
+    					value: diffuseTexture
+    				},
+                    normalTexture:{
+                        type: 't',
+                        value: normalTexture
+                    },
+                    specularTexture:{
+                        type: 't',
+                        value: specularTexture
+                    },
+                    kibanTexture:{
+                        type: 't',
+                        value: kibanTexture
+                    },
+                    kibanAlpha:{
+                        type:"f",
+                        value:0.0
+                    },
+                    cubeTexture:{
+                        type:'t',
+                        value:cubeCamera.renderTarget
+                    },
+                    lightPos:{
+                        type: 'v3',
+                        value: light.position.clone()
+                    },
+                    eyePos:{
+                        type: 'v3',
+                        value: camera.position.clone()
+                    },
+                    rotate:{
+                        type:"f",
+                        value:0.0
+                    },
+                    rotateX:{
+                        type:"f",
+                        value:0.0
+                    },
+                    oldRotate:{
+                        type:"f",
+                        value:0.0
+                    },
+                    oldRotateX:{
+                        type:"f",
+                        value:0.0
+                    }
+    			}
+    		});
+
+
+            var material2 = new THREE.MeshLambertMaterial();
+            var geometry = new THREE.PlaneGeometry( 7, 7, 1, 1 );
+            groundMesh = new THREE.Mesh( geometry, material2 );
+            groundMesh.rotation.x = 270 * Math.PI / 180;
+            //groundMesh.receiveShadow = true; 
+            //scene.add( groundMesh );
+
+
+            var meshs = [];
+            for( var i = 0; i < 10; i++ ){
+                var geometry = new THREE.PlaneGeometry( 1, 1 );
+                var planeMesh = new THREE.Mesh( geometry, new THREE.MeshBasicMaterial());
+                planeMesh.position.x = Math.random() * 10 - 5;
+                planeMesh.position.y = Math.random() * 10 - 5 + 2;
+                planeMesh.position.z = Math.random() * 10 - 5;
+                planeMesh.lookAt( camera.position.clone() );
+                meshs.push( planeMesh );
+            }
+
+            var geometry = new THREE.Geometry();
+            for (var i = 0; i < 10; i++) {
+                meshs[i].updateMatrix();
+                geometry.merge(meshs[i].geometry, meshs[i].matrix, i);
+            }
+            var batsuTexture = THREE.ImageUtils.loadTexture('img/batsu0.png');
+            batsuTexture.wrapS = batsuTexture.wrapT = THREE.RepeatWrapping; 
+            var planeMeshs = new THREE.Mesh( geometry, new THREE.MeshBasicMaterial({ map:batsuTexture, transparent:true }));
+            scene.add( planeMeshs );
+
+
+            var jsonLoader = new THREE.JSONLoader();
+            var url = 'models/leeperrysmith/smith.json';
+            function jsonLoadCompHandler(geometry, materials){
+
+                //faceMesh = getAnimationMesh( geometry, material );
+                faceMesh = new THREE.Mesh( geometry, material );
+                faceMesh.position.set( 0, 0, 0 );
+                faceMesh.scale.set( 10, 10, 10 );
+                faceMesh.geometry.computeVertexNormals();
+                scene.add( faceMesh );
+
+
+            }
+            jsonLoader.load(url, jsonLoadCompHandler.bind(this));
+
+        }
+
+
+
+        function getAnimationMesh(geometry, materials) {
+            var mesh = new THREE.MorphAnimMesh(geometry, material);
+            mesh.material.needsUpdate = true;
+
+            mesh.name = 'smith';
+        
+            mesh.position.set( 0, 0, 0 );
+            mesh.scale.set( 10, 10, 10 );
+            mesh.geometry.computeVertexNormals();
+        
+            mesh.parseAnimations();
+            mesh.baseDuration = mesh.duration;
+
+            geometry.dispose();
+            return mesh;
+        }
+        
+
+        function initParticle(){
+
+            //particle
+            var particleScale = .5;
+
+            // Create particle group
+            particleGroup = new SPE.Group({
+                texture: THREE.ImageUtils.loadTexture("img/particle1.png"),
+                maxAge: 10,
+                hasPerspective: 1,
+                colorize: 1,
+                transparent: 1,
+                alphaTest: 0.5,
+                depthWrite: false,
+                depthTest: true,
+                blending: THREE.AdditiveBlending
+            });
+
+            // Create particle emitter 0
+            var Untitled1Emitter = new SPE.Emitter( {
+                type: 'cube',
+                particleCount: 100,
+                position: new THREE.Vector3( 0, 0, 0 ),
+                positionSpread: new THREE.Vector3( 10, 10, 0 ),
+                acceleration: new THREE.Vector3( 0, 0, 0 ),
+                accelerationSpread: new THREE.Vector3( 0, 0, 0 ),
+                velocity: new THREE.Vector3( 0, 0, 2 ),
+                velocitySpread: new THREE.Vector3( 1.5, 1.5, 3 ),
+                sizeStart: .1,
+                sizeStartSpread: 0,
+                sizeMiddle: .1,
+                sizeMiddleSpread: 0,
+                sizeEnd: .1,
+                sizeEndSpread: 0,
+                angleStart: 0,
+                angleStartSpread: 0,
+                angleMiddle: 0,
+                angleMiddleSpread: 0,
+                angleEnd: 0,
+                angleEndSpread: 0,
+                angleAlignVelocity: undefined,
+                colorStart: new THREE.Color( 0xffffff ),
+                colorStartSpread: new THREE.Vector3( 0, 0, 0 ),
+                colorMiddle: new THREE.Color( 0xffffff ),
+                colorMiddleSpread: new THREE.Vector3( 0, 0, 0 ),
+                colorEnd: new THREE.Color( 0xffffff ),
+                colorEndSpread: new THREE.Vector3( 0, 0, 0 ),
+                opacityStart: 1,
+                opacityStartSpread: 0,
+                opacityMiddle: 0.5,
+                opacityMiddleSpread: 0,
+                opacityEnd: 0,
+                opacityEndSpread: 0,
+                duration: null,
+                alive: 1,
+                isStatic: false
+            } );
+
+
+
+
+            particleGroup.addEmitter( Untitled1Emitter );
+            particleGroup.mesh.scale.multiplyScalar(particleScale);
+
+
+            particleGroup.mesh.position.y = 2;
+            particleGroup.mesh.position.z = 5;
+            particleGroup.mesh.rotation.y = 180 * Math.PI / 180;
+            scene.add(particleGroup.mesh);
+
+        }
+
+
+
+
+
+    	var rot = 0;
+    	var start = Date.now();
+        var rotate = 0;
+        var rotateX = 0;
+        var oldRotate = 0;
+        var oldRotateX = 0;
+        function animate() {
+
+            requestAnimationFrame(animate);
+
+            delta = clock.getDelta();
+
+            camera.lookAt( new THREE.Vector3(0, 2.5, 0) );
+
+
+            if( faceMesh ) faceMesh.visible = false;
+            groundMesh.visible = false;
+            renderer.setClearColor ( 0x000000, 1 );
+            cubeCamera.updateCubeMap( renderer, scene );
+            if( faceMesh ) faceMesh.visible = true;
+            groundMesh.visible = true;
+            renderer.setClearColor ( 0xd9dcd1, 1 );
+
+
+            particleGroup.tick( delta );
+
+
+            //renderer.render(scene, camera);
+            if( composer ) composer.render(0.1);
+
+            material.uniforms.eyePos.value = camera.position.clone();
+
+
+            if( MYAPP.touch ){
+                var targetRotate = -( stageWidth * .5 - MYAPP.touch.x ) * .01;
+                rotate += -( rotate - targetRotate ) * .1; 
+
+                if( downFlag ){
+                    rotateX = animateObj.rotateX;
+                }else{
+                    var targetRotateX = ( MYAPP.touch.y - 50 ) * .002;
+                    rotateX += -( rotateX - targetRotateX ) * .1; 
+                    if( rotateX > .8 ) rotateX = .8;
+                }
+    		}
+            material.uniforms.rotate.value = rotate;
+            material.uniforms.rotateX.value = rotateX;
+            material.uniforms.oldRotate.value = oldRotate;
+            material.uniforms.oldRotateX.value = oldRotateX;
+            oldRotate = rotate;
+            oldRotateX = rotateX;
+
+            rot += .6;
+            var radian = rot * Math.PI / 180;
+            var x = Math.cos( radian ) * 3 + 3;
+            if( x > 3 ) x = 3;
+    		material.uniforms.kibanAlpha.value = x;
+
+
+            //if( faceMesh ) faceMesh.updateAnimation(1000 * .05);
+    	
+        }
+
+
+
+        //-------------post process--------------------
+        var hblur;
+        var vblur;
+        var bluriness = 3;
+        var graTexture;
+        function initComposer(){
+
+            renderTargetParameters = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBFormat, stencilBuffer: false };
+            renderTarget = new THREE.WebGLRenderTarget( stageWidth, stageHeight, renderTargetParameters);
+
+            composer = new THREE.EffectComposer(renderer /*,renderTarget*/);
+            composer.addPass(new THREE.RenderPass(scene, camera));
+
+            graTexture = THREE.ImageUtils.loadTexture("img/gra0.jpg", THREE.UVMapping );
+            graTexture.wrapS = graTexture.wrapT = THREE.RepeatWrapping; 
+            var shader = {
+                uniforms: {
+                    tDiffuse: {
+                        type: "t",
+                        value: null
+                    },
+                    graTexture: {
+                        type: "t",
+                        value: null
+                    },
+                    stageSize: {
+                        type: "v2",
+                        value: new THREE.Vector2( stageWidth, stageHeight )
+                    }
+                },
+                vertexShader: document.getElementById('rgb-vshader').textContent,
+                fragmentShader: document.getElementById('rgb-fshader').textContent
+            };
+
+            var shaderPass = new THREE.ShaderPass(shader);
+            shaderPass.uniforms['graTexture'].value = graTexture;
+            shaderPass.needsSwap = true;
+            composer.addPass(shaderPass);
+
+
+            hblur = new THREE.ShaderPass(THREE.HorizontalTiltShiftShader);
+            vblur = new THREE.ShaderPass(THREE.VerticalTiltShiftShader);
+
+            hblur.uniforms['h'].value = bluriness / window.innerWidth;
+            vblur.uniforms['v'].value = bluriness / window.innerHeight;
+            hblur.uniforms['r'].value = vblur.uniforms['r'].value = 0.5;
+
+            composer.addPass(hblur);
+            composer.addPass(vblur);
+            
+
+            var toScreen = new THREE.ShaderPass(THREE.CopyShader);
+            toScreen.renderToScreen = true;
+            composer.addPass(toScreen);
+
+        }
+
+
+        var resizeTimeoutId;
+        function resize(){
+
+            clearTimeout( resizeTimeoutId );
+            resizeTimeoutId = setTimeout(function(){
+
+                var w = window.innerWidth;
+                var h = window.innerHeight;
+
+                stageWidth = w;
+                stageHeight = h;
+
+                camera.aspect = w / h;
+                camera.updateProjectionMatrix();
+                renderer.setSize( w, h );
+                if( composer ) composer.setSize( w, h );
+                hblur.uniforms['h'].value = bluriness / w;
+                vblur.uniforms['v'].value = bluriness / h;
+
+            }, 300);
+
+        }
+
+
+
+
+        function screen2world() {
+
+            var _touch = new THREE.Vector3( MYAPP.touch.x, MYAPP.touch.y, .5 );
+            _touch.x = (_touch.x / stageWidth) * 2 - 1;
+            _touch.y = -(_touch.y / stageHeight) * 2 + 1;
+
+            //projector.unprojectVector(_touch, camera);
+            _touch.unproject( camera );
+
+            return _touch;
+        }
+
+        return Main;
+
+    })();
+
+
+
+
+
+
+
+
+    MYAPP.touch = {
+    	x:0,
+    	y:0,
+    	oldX:0,
+    	oldY:0,
+    	dragDistX:0,
+    	dragDistY:0,
+    	offsetX:0, 
+    	offsetY:0,
+    	totalOffsetX:0,
+    	totalOffsetY:0,
+    	downFlag:false
+    };
+
+
+    MYAPP.TouchManager = (function(){
+
+    	var touchStartFuncs = [];
+    	var touchStartFuncLength = 0;
+    	var touchMoveFuncs = [];
+    	var touchMoveFuncLength = 0;
+    	var touchEndFuncs = [];
+    	var touchEndFuncLength = 0;
+    	var touch;
+
+
+
+    	function TouchManager(){
+    	 
+    		touch = MYAPP.touch;
+    		this.ua = new MYAPP.UserAgent();
+
+    		this.movePreventDefaultFlag = false;
+
+    		if( this.ua.platform == 'pc' ){
+    		    document.addEventListener('mousedown', this.touchStartHandler.bind( this ), false);
+    		    document.addEventListener('mousemove', this.touchMoveHandler.bind( this ), false);
+    		    document.addEventListener('mouseup', this.touchEndHandler.bind( this ), false);
+    		}else{
+    		    document.addEventListener('touchstart', this.touchStartHandler.bind( this ), false);
+    		    document.addEventListener('touchmove', this.touchMoveHandler.bind( this ), false);
+    		    document.addEventListener('touchend', this.touchEndHandler.bind( this ), false);
+    		}
+    	}
+
+
+    	TouchManager.prototype = {
+
+    		//------------------------タッチイベント------------------------
+    		touchStartHandler : function(e){
+    			
+    			touch.downFlag = true;
+
+    			if( this.ua.platform == 'pc' ){
+    				touch.x = e.clientX;
+    				touch.y = e.clientY;
+    			}else{
+    				if (e.touches.length) {
+    					touch.x = e.touches[0].pageX;
+    					touch.y = e.touches[0].pageY;
+    				}
+    			}
+
+    			for( var i = 0; i < touchStartFuncLength; i++ ) touchStartFuncs[ i ]( e );
+    		},
+
+
+    		touchMoveHandler : function(e){
+
+    			//if( nowPage == 'top' && touch.y > 680 ) return;
+    			
+    			touch.oldX = touch.x;
+    			touch.oldY = touch.y;
+    			if( this.ua.platform == 'pc' ){
+    				touch.x = e.clientX;
+    				touch.y = e.clientY;
+    			}else{
+    				if (e.touches.length) {
+    					touch.x = e.touches[0].pageX;
+    					touch.y = e.touches[0].pageY;
+    				}
+    			}
+
+    			if( touch.downFlag ){
+    				touch.offsetX = touch.x - touch.oldX;
+    				touch.offsetY = touch.y - touch.oldY;
+    				touch.totalOffsetX += touch.offsetX;
+    				touch.totalOffsetY += touch.offsetY;
+    		        touch.dragDistX = Math.abs(touch.offsetX);
+    		        touch.dragDistY = Math.abs(touch.offsetY);
+    		    }
+    		    
+    			for( var i = 0; i < touchMoveFuncLength; i++ ) touchMoveFuncs[ i ]( e );
+    	     	
+    			//AndroidでtouchEndを発火させる為の対策
+    	        if( touch.dragDistY < touch.dragDistX &&
+    	        	this.ua.platform != 'pc' ||
+    	        	this.movePreventDefaultFlag ){
+    	        	if( e.target.tagName != 'INPUT' &&
+    	        		e.target.tagName != 'TEXTAREA' ) e.preventDefault();
+    	    	}
+    		},
+
+
+    		touchEndHandler : function(e){
+    			
+    			touch.downFlag = false;
+    			touch.offsetX = 0;
+    			touch.offsetY = 0;
+    			touch.totalOffsetX = 0;
+    			touch.totalOffsetY = 0;
+    	        touch.dragDistX = 0;
+    	        touch.dragDistY = 0;
+
+    			for( var i = 0; i < touchEndFuncLength; i++ ) touchEndFuncs[ i ]( e );
+    		},
+
+
+    		//------------------------グローバル関数------------------------
+    		setTouchStartFunc : function( func ){
+
+    			touchStartFuncs.push( func );
+    			touchStartFuncLength = touchStartFuncs.length;
+
+    		},
+
+    		setTouchMoveFunc : function( func ){
+
+    			touchMoveFuncs.push( func );
+    			touchMoveFuncLength = touchMoveFuncs.length;
+
+    		},
+
+    		setTouchEndFunc : function( func ){
+
+    			touchEndFuncs.push( func );
+    			touchEndFuncLength = touchEndFuncs.length;
+
+    		}
+
+    	}
+
+    	return TouchManager;
+
+    })();
+
+
+
+
+
+
+
+    MYAPP.UserAgent = (function(){
+
+    	function UserAgent(){
+
+    		this.isAndroid = (navigator.userAgent.search(/Android/)> 0)?true:false;
+    		this.is_iOS = (navigator.userAgent.search(/iPhone/)> 0 || navigator.userAgent.search(/iPod/)> 0 || navigator.userAgent.search(/iPad/)> 0)?true:false;
+    		this.is_oldiPhone = (this.is_iOS ===true && window.devicePixelRatio > 1 && window.screen.height !== 568)?true:false;
+    	
+
+    		var ua = navigator.userAgent.toLowerCase();
+    		var ver = window.navigator.appVersion.toLowerCase();
+    		var browser = '';
+    		var ieVer = 9999;
+    		if (ua.indexOf("msie") != -1){
+    			browser = 'ie';
+    	        if (ver.indexOf("msie 6.") != -1){
+    	            ieVer = 6;
+    	        }else if (ver.indexOf("msie 7.") != -1){
+    	            ieVer = 7;
+    	        }else if (ver.indexOf("msie 8.") != -1){
+    	            ieVer = 8;
+    	        }else if (ver.indexOf("msie 9.") != -1){
+    	            ieVer = 9;
+    	        }else if (ver.indexOf("msie 10.") != -1){
+    	            ieVer = 10;
+    	        }
+    	    }else if(ua.indexOf('trident/7') != -1){
+    	        browser = 'ie';
+    	        ieVer = 11;
+    	    }else if (ua.indexOf('chrome') != -1) {
+    		    browser = 'chrome';
+    		} else if (ua.indexOf('safari') != -1) {
+    		    browser = 'safari';
+    		} else if (ua.indexOf('firefox') != -1) {
+    		    browser = 'firefox';
+    		} else if (ua.indexOf('opera') != -1) {
+    		    browser = 'opera';
+    		}
+
+    		ua = navigator.userAgent;
+    		var twitterFlag = false;
+    		if (ua.search(/Twitter/) != -1)
+    		    twitterFlag = true;
+    		var platform = 'pc';
+    		if (ua.search(/iPhone/) != -1) {
+    		    platform = "sp";
+    		} else if ((ua.search(/Android/) != -1) && (ua.search(/Mobile/) != -1)) {
+    		    platform = "sp";
+    		} else if ((ua.search(/iPad/) != -1) || (ua.search(/Android/) != -1)) {
+    		    platform = "ipad";
+    		}
+
+    		this.browser = browser;
+    		this.ieVer = ieVer;
+    		this.platform = platform;
+    	
+    	}
+
+    	return UserAgent;
+
+    })();
+    </script>
+
+	</body>
+</html>

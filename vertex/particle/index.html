@@ -1,0 +1,252 @@
+﻿<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Shader TEST</title>
+    <script src="../../js/three.min.js"></script>
+
+
+    <script type="x-shader/x-vertex" id="vshader">
+    uniform float time;
+    attribute float index;
+    varying float indexCache;
+    attribute vec3 direction;
+    attribute float duration;
+    attribute float size;
+    attribute float rotationSpeed;
+    varying float rotationSpeedCache;
+
+    varying float positionInTime;
+    
+    void main(void) {
+        vec3 pos = position;
+        float t = mod(time, duration);//余りを求める
+        positionInTime = t / duration;
+
+        float pointSize; 
+        if(index < 15.0){    //flare1
+            pos = vec3(0, 0, 0);
+            pointSize = size * 2.0;
+        }else if(index > 15.0 && index < 45.0 ){  //particle
+            pos = direction * 6.0 * t;
+            pointSize = size * 2.0 * t;
+        }else{  //flare2 45～50 
+            pos = vec3(0, 0, 0);
+            pointSize = size * 12.0 * t;
+        }
+        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+        gl_PointSize = pointSize * ( 5.0 / length(mvPos.xyz) );
+
+        indexCache = index;
+        rotationSpeedCache = rotationSpeed;
+
+        gl_Position = projectionMatrix * mvPos;
+    }
+    </script>
+ 
+    <script type="x-shader/x-fragment" id="fshader">
+    uniform float time;
+    uniform sampler2D texture1;
+    uniform sampler2D texture2;
+    uniform sampler2D texture3;
+    uniform vec4 color;
+    uniform float opacity;
+    varying float indexCache;
+    varying float positionInTime;
+    varying float rotationSpeedCache;
+
+    void main(void) {
+        
+        vec4 tex;
+        if(indexCache < 15.0 ){  //flare1
+                
+            float mid = 0.5;
+            float vRotation = time * rotationSpeedCache;
+            vec2 rotated = vec2(cos(vRotation) * (gl_PointCoord.x - mid) + sin(vRotation) * (gl_PointCoord.y - mid) + mid,
+                              cos(vRotation) * (gl_PointCoord.y - mid) - sin(vRotation) * (gl_PointCoord.x - mid) + mid);
+
+            tex = texture2D( texture1, rotated );
+            tex *= color;
+            
+        }else if(indexCache > 15.0 && indexCache < 45.0 ){  //particle
+
+            tex = texture2D( texture2, gl_PointCoord );
+            tex.a *= (1.0 - positionInTime);
+            tex *= color;
+        
+        }else{  //flare2 45～50
+
+            tex = texture2D( texture3, gl_PointCoord );
+            tex.a *= (1.0 - positionInTime) * .7;
+            tex *= color;
+
+        }
+        //if ( tex.a < 0.5 ) discard;
+tex.a *= opacity;
+        gl_FragColor = tex;
+        
+    }
+    </script>
+</head>
+<body>
+<style>
+    body{
+        background-color:#000;
+    }
+
+</style>
+
+    <script>
+
+
+        var scene;
+        var renderer;
+        var camera;
+
+
+
+        scene = new THREE.Scene();
+
+        renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMapEnabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        var fov = 100;
+        var aspect = window.innerWidth / window.innerHeight;
+        camera = new THREE.PerspectiveCamera(fov, aspect, 1, 20000);
+        camera.position.x = 0;
+        camera.position.y = 3;
+        camera.position.z = -5;
+        camera.lookAt( new THREE.Vector3( 0, 3, 0 ) );
+
+
+
+
+        var c = new THREE.Color(0x68c1ff);
+        //var c = new THREE.Color(0xff7c1d);
+        
+        var material = new THREE.ShaderMaterial({
+            vertexShader: document.getElementById('vshader').textContent,
+            fragmentShader: document.getElementById('fshader').textContent,
+            
+            uniforms: {
+                texture1: {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture('img/flare3.png')
+                },
+                texture2: {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture('img/star2.png')
+                },
+                texture3: {
+                    type: 't',
+                    value: THREE.ImageUtils.loadTexture('img/flare1.png')
+                },
+                time:{
+                    type:'f',
+                    value:0.0
+                },
+                color:{
+                    type:'v4',
+                    value:new THREE.Vector4(c.r, c.g, c.b, 1)
+                },
+                opacity:{
+                    type:'f',
+                    value:1.0
+                }
+            },
+            attributes:{
+                index:{
+                    type:'f',
+                    value:[]
+                },
+                direction:{
+                    type:'v3',
+                    value:[]
+                },
+                duration:{
+                    type:'f',
+                    value:[]
+                },
+                size:{
+                    type:'f',
+                    value:[]
+                },
+                rotationSpeed:{
+                    type:'f',
+                    value:[]
+                }
+            },
+            blending: THREE.AdditiveBlending,
+            //alphaTest:.5,
+            depthWrite:false,
+            //depthTest:true,
+            transparent: true
+        });
+
+
+
+        var geometry = new THREE.BoxGeometry(1, 1, 1, 4, 4);
+        var mesh = new THREE.PointCloud(geometry, material);
+        mesh.position.y = 3;
+        mesh.castShadow  = true;
+        scene.add(mesh);
+
+mesh.material.uniforms.opacity.value = .9;
+
+        //set attributes
+        var indexs = [];
+        var directions = [];
+        var durations = [];
+        var sizes = [];
+        var rotationSpeeds = [];
+        var radius = new THREE.Vector3(4, 2, 4);
+        var length = geometry.vertices.length;
+        for( var i = 0; i < length; i++){
+            indexs.push(i);
+            directions.push(new THREE.Vector3(
+                radius.x * .5 - radius.x * Math.random(),
+                radius.y * .5 - radius.y * Math.random(),
+                radius.z * .5 - radius.z * Math.random()).normalize()
+            );
+            durations.push(.5 + .1 * Math.random());
+            sizes.push(50 + 50 * Math.random());
+            rotationSpeeds.push(2 - 4 * Math.random());
+        }
+        material.attributes.index.value = indexs;
+        material.attributes.direction.value = directions;
+        material.attributes.duration.value = durations;
+        material.attributes.size.value = sizes;
+        material.attributes.rotationSpeed.value = rotationSpeeds;
+
+
+        var material2 = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe:true });
+        geometry = new THREE.PlaneGeometry( 10, 10, 5, 5 );
+        mesh = new THREE.Mesh( geometry, material2 );
+        mesh.rotation.x = 90 * 180 / Math.PI;
+        mesh.receiveShadow = true;
+        scene.add( mesh );
+
+        var start = Date.now();
+        animate();
+        function animate() {
+
+            requestAnimationFrame(animate);
+
+
+            var time = .001 * ( Date.now() - start );
+            material.uniforms.time.value = time;
+
+            renderer.render(scene, camera);
+
+        }
+
+
+    </script>
+
+
+
+</body>
+</html>

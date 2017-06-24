@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ja">
+	<head>
+		<title>textuer</title>
+
+		<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+
+		<link rel="stylesheet" href="color_picker.css">
+
+	    <script src="../../js/three.min.js"></script>
+	    <script src="jquery.js"></script>
+	    <script src="skizi.js"></script>
+	    <script src="color_picker.js"></script>
+	    <script src="three_uv_paint.js"></script>
+	    <script src="player.js"></script>
+	    <script src="raycast_manager.js"></script>
+			
+		
+		
+		<script type="x-shader/x-vertex" id="vshader">
+			
+		uniform sampler2D texture;
+		uniform vec3 lightPos;
+    	uniform vec3 eyePosition;
+    	uniform float time;
+
+		varying vec4 vColor;
+		varying vec3 vNormal;
+		varying vec2 vUv;
+		varying float diffuse;
+
+	    varying vec3 vEyeDirection;
+	    varying vec3 vLightDirection;
+
+	    varying vec4 fog;
+
+	    float dx = 1. / 1024.;
+	    float dy = 1. / 1024.;
+		vec3 newNormal;
+
+
+		void setNomal(){
+	        vec3 wNormal = normalize(normalMatrix * newNormal);
+	        vec3 pos = ( modelMatrix * vec4( position, .0 ) ).xyz;
+	        vec3 vEyePos = ( viewMatrix * vec4( eyePosition, .0 ) ).xyz;
+	        vec3 vLightPos = ( viewMatrix * vec4( lightPos, .0 ) ).xyz;
+	        vec3 eye = vEyePos - pos;
+	        vec3 light = vLightPos - pos;
+
+	        vec3 n = normalize( wNormal );   //z
+	        vec3 t = normalize( cross( wNormal, vec3(0.0, 1.0, 0.0)));//x
+	        vec3 b = cross( n, t );//y
+
+	        vEyeDirection.x = dot( t, eye );
+	        vEyeDirection.y = dot( b, eye );
+	        vEyeDirection.z = dot( n, eye );
+	        vEyeDirection = normalize( vEyeDirection );
+
+	        vLightDirection.x = dot( t, light );
+	        vLightDirection.y = dot( b, light );
+	        vLightDirection.z = dot( n, light );
+	        vLightDirection = normalize( vLightDirection );
+	    }
+
+		void main(){
+
+			//wave & 新normal算出
+			float strength = 7.0;
+			newNormal = normal;
+			vec3 tex = texture2D( texture, uv ).xyz;
+			float wave = length( tex.xyz ) * strength;
+
+			tex = texture2D( texture, uv + vec2( -dx, .0 ) ).xyz;
+			float wave1 = length( tex.xyz ) * strength;
+			float deltaS = wave - wave1;
+
+			tex = texture2D( texture, uv + vec2( .0, -dy ) ).xyz;
+			wave1 = length( tex.xyz ) * strength;
+			float deltaT = wave - wave1;
+
+			vec3 As = vec3( 1., 0., 0. );
+			vec3 At = vec3( .0, 1., 0. );
+			newNormal -= As * deltaS + At * deltaT;
+
+
+      		vNormal = normalize( normalMatrix * newNormal );
+
+			
+			setNomal();
+
+			//diffuse
+	        vec3 normal2 = vNormal;
+	        vec4 vLightPos = viewMatrix * vec4( lightPos, 1.0 );
+	        vec4 mvPos = modelViewMatrix * vec4( position, 1.0 );
+	        vec3 s = normalize( vLightPos.xyz - mvPos.xyz );
+	        diffuse = max(dot(s, normal2), 0.0);
+            diffuse = diffuse + .5;
+	        if( diffuse > 1. ) diffuse = 1.;
+
+	        // float dist = ( length( eyePosition - ( vec4( position, 1. ) * modelMatrix ).xyz ) - 200. + 50. ) / 50.;
+	        // if( dist > 1. ) dist = 1.;
+	        // if( dist < .0 ) dist = .0;
+	        // fog = vec4( vec4( .8, .8, 1., dist * .5 ) );
+
+      		vUv = uv;
+
+			vec3 pos = position + wave /** sin(time)*/ * normal;
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( pos, 1.0 );
+
+		}
+		</script>
+		
+		<script type="x-shader/x-fragment" id="fshader">
+			
+		uniform sampler2D texture;
+        uniform sampler2D waterTexture;
+        uniform sampler2D waterNormalTexture;
+        uniform sampler2D groundTexture;
+        uniform sampler2D groundTexture2;
+        uniform sampler2D groundNormalTexture2;
+    	uniform float time;
+    	uniform vec3 eyePosition;
+		
+		varying vec4 vColor;
+		varying vec3 vNormal;
+		varying vec2 vUv;
+		varying float diffuse;
+		
+	    varying vec3 vEyeDirection;
+	    varying vec3 vLightDirection;
+
+	    varying vec4 fog;
+
+        
+        vec4 alphaBlend( vec4 c1, vec4 c2 ){
+            vec4 c = c1.a * c1.xyzw + ( 1.0 - c1.a ) * c2.xyzw;
+            return c;
+        }
+		
+
+		void main(void){
+
+			vec3 tex = texture2D( texture, vUv ).xyz;
+            float hMap = ( tex.x + tex.y + tex.z ) / 3.;
+
+            //-------------water--------------
+            vec4 color;
+            if( hMap < .2 ){
+				color = vec4( .2, .6, .8, 1. );
+
+				//water normal
+		        vec3 mNormal = (texture2D( waterNormalTexture, vUv * 1.5 + time) * 2.0 - 1.0).rgb;
+		        float normalDiffuse = clamp(dot(mNormal, vLightDirection), .0, 1.0);
+		        normalDiffuse = normalDiffuse * .5 + .5;
+		        vec2 offset = vec2( vUv.x + time, vUv.y - time );
+		        vec3 mNormal2 = (texture2D( waterNormalTexture, vUv * 1. + offset ) * 2.0 - 1.0).rgb;
+		        float normalDiffuse2 = clamp(dot(mNormal2, vLightDirection), .0, 1.0);
+		        normalDiffuse2 = normalDiffuse2 * .5 + .5;
+		        normalDiffuse *= normalDiffuse2;
+		        if( normalDiffuse > 1. ) normalDiffuse = 1.;
+		        color.xyz *= normalDiffuse;
+
+			    //water specular
+		        vec3 s = vLightDirection;
+		        vec3 v = vEyeDirection;
+		        vec3 h = normalize( v + s );
+		        float specular1 = pow( max( dot( mNormal, h ), 0.0 ), 5.0 ) * .5;
+		        float specular2 = pow( max( dot( mNormal2, h ), 0.0 ), 5.0 ) * .5;
+		        color += specular1 + specular2;
+		    }
+
+        	//----------terrain-----------
+            //ground1
+            float a;
+            if( hMap > .0 ){
+	            vec4 groundTex = texture2D( groundTexture, vUv * 2. );
+	            a = hMap / .2;
+	            if( a > 1. ) a = 1.;
+	            groundTex.w = a;
+	            color = alphaBlend( groundTex, color );
+			}
+
+            //ground2
+            if( hMap > .5 ){
+	            vec4 groundTex2 = texture2D( groundTexture2, vUv * vec2( 8., 4.) );
+		        vec3 groundNormalTex2 = (texture2D( groundNormalTexture2, vUv * vec2( 8., 4.) ) * 2.0 - 1.0).rgb;
+		        float ground2Diffuse = clamp(dot(groundNormalTex2, vLightDirection), .0, 1.0);
+		        groundTex2.xyz *= ground2Diffuse;
+				a = ( hMap - .5 ) / .5;
+	            if( a < .0 ) a = .0;
+	            if( a > 1. ) a = 1.;
+	            groundTex2.w = a;
+	            color = alphaBlend( groundTex2, color );
+	        }
+            //color = alphaBlend( fog, color );
+
+			gl_FragColor = vec4( color.xyz * diffuse, 1. );
+			
+		}
+		</script>
+	
+		
+		<script type="x-shader/x-vertex" id="color-vshader">
+		varying vec2 vUv;
+
+		void main(){
+			
+			vUv = uv;
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+		}
+		</script>
+		
+		<script type="x-shader/x-fragment" id="color-fshader">
+		varying vec2 vUv;
+
+		void main(void){
+			
+			gl_FragColor = vec4(vUv.x, vUv.y, .0, 1.);
+			
+		}
+		</script>
+		
+
+	</head>
+	<body>
+
+	<style>
+		body{
+			overflow: hidden;
+		}
+
+		div#loading{
+			position:absolute;
+			top:0px;
+			left:0px;
+			height:3000px;
+			background-color: #fff;
+			background-image: url('img/loading2.gif');
+			background-repeat: no-repeat;
+			background-position: center center;
+			z-index: 100;
+		}
+
+		p#outline{
+		    line-height: 24px;
+		    margin: 0;
+		    padding: 0;
+			color:#fff;
+			font-size:14px;
+		    letter-spacing: 1px;
+			position:absolute;
+			bottom:10px;
+			left:10px;
+		    border-left: 2px solid #fff;
+		    padding-left: 10px;
+		}
+	</style>
+
+
+    <script>
+
+	    MYAPP = {};
+		MYAPP.touchManager = new SKIZI.TouchManager();
+		MYAPP.touchManager.movePreventDefaultNoneFlag = true;
+		MYAPP.touch = SKIZI.touch;
+
+		var Input = { 
+				x:0,
+				y:0,
+				z:0,
+				alt:false,
+				run:false
+			};
+
+		var debugEle;
+
+
+		$( window ).ready( init );
+		function init(){
+
+			$( document.body ).css({ margin:0 });
+
+			initThree();
+
+	        debugEle = $('<div>');
+	        debugEle.css({ position:'absolute', top:'0px', color:'#fff' });
+	        $( document.body ).append( debugEle );
+
+	        animate();
+	        $(window).resize( resize );
+
+
+			//colorPicker
+			colorPicker = new ColorPicker();
+			colorPicker.element.on( 'callback', function colorPickerCallBackHandler(){
+				var obj = arguments[1];
+				nowColor = obj.nowColor;
+	    	}.bind( this ) );
+
+
+	        window.onkeydown = keyDown.bind(this);
+	        window.onkeyup = keyUp.bind(this);
+
+	        $( document ).on( 'mousedown', downHandler.bind( this ) );
+
+			$( '#loading' ).css({
+				width:window.innerWidth + 'px',
+				height:window.innerHeight + 'px'
+			});
+
+	    }
+
+
+	    function keyDown(e) {
+	        e.preventDefault();
+
+	        if (e.keyCode === 37 || e.keyCode === 65) {
+	            Input.x = -1;
+	        }
+	        if (e.keyCode === 38 || e.keyCode === 87) {
+	            Input.z = 1;
+	        }
+
+	        if (e.keyCode === 39 || e.keyCode === 68) {
+	            Input.x = 1;
+	        }
+
+	        if (e.keyCode === 40 || e.keyCode === 83) {
+	            Input.z = -1;
+	        }
+
+	        if (e.keyCode === 32) {
+	            Input.y = 1;
+	        }
+
+	        if (e.keyCode === 16) {
+	            Input.run = true;
+	        }
+
+	        if (e.keyCode === 18) {
+	            Input.alt = true;
+	        }
+
+	        if (e.keyCode === 13) {
+	            Vars.enterDown();
+	        }
+	    };
+
+	    function keyUp(e) {
+	        e.preventDefault();
+
+	        if (e.keyCode === 37 || e.keyCode === 65) {
+	            Input.x = 0;
+	        }
+	        if (e.keyCode === 38 || e.keyCode === 87) {
+	            Input.z = 0;
+	        }
+
+	        if (e.keyCode === 39 || e.keyCode === 68) {
+	            Input.x = 0;
+	        }
+
+	        if (e.keyCode === 40 || e.keyCode === 83) {
+	            Input.z = 0;
+	        }
+
+	        if (e.keyCode === 32) {
+	            Input.y = 0;
+	        }
+
+	        if (e.keyCode === 16) {
+	            Input.run = false;
+	        }
+
+	        if (e.keyCode === 18) {
+	            Input.alt = false;
+	        }
+	    };
+
+
+	    function downHandler(){
+	    	checkDownObject();
+	    }
+
+
+
+		//------------------------three--------------------
+        var scene;
+        var renderer;
+        var camera;
+        var sphereMesh;
+
+        var cameraY = 200;
+        var cameraRadius = 200;
+        var cameraRot = 90;
+        var toRad = Math.PI / 180;
+
+        var nowColor = [255, 0, 0, 255];
+
+        var threeUVPaint;
+
+    	var clock = new THREE.Clock();
+    	var raycastManager;
+    	var raycaster;
+
+        function initThree(){
+
+	        scene = new THREE.Scene();
+
+	        renderer = new THREE.WebGLRenderer();
+	        renderer.setSize(window.innerWidth, window.innerHeight);
+	        renderer.shadowMapEnabled = true;
+	        document.body.appendChild(renderer.domElement);
+
+
+	        var fov = 100;
+	        var aspect = window.innerWidth / window.innerHeight;
+	        camera = new THREE.PerspectiveCamera(fov, aspect, 1, 20000);
+	        camera.position.x = 0;
+	        camera.position.y = cameraY;
+	        camera.position.z = cameraRadius;
+	        camera.lookAt( new THREE.Vector3( 0, 100, 0 ) );
+
+	        
+	        var light = new THREE.DirectionalLight(0xffffff, .5);
+	        light.position.set( 100, 500, 200);
+	        light.castShadow = true;
+	        scene.add(light);
+
+
+	        threeUVPaint = new ThreeUVPaint( scene, camera, renderer );
+	        threeUVPaint.paintMaterial.uniforms.lightPos.value = light.position;
+	        threeUVPaint.paintMaterial.uniforms.eyePosition.value = camera.position;
+	        
+
+	        //sphre
+	        var geometry = new THREE.SphereGeometry( 100, 100, 100 );
+	        sphereMesh = new THREE.Mesh( geometry, threeUVPaint.paintMaterial );
+	        sphereMesh.position.y = 150;
+	        sphereMesh.castShadow  = true;
+	        scene.add( sphereMesh );
+
+	        threeUVPaint.setMesh( sphereMesh );
+
+
+	        //床
+            var map = THREE.ImageUtils.loadTexture( 'img/ground0_512.jpg' );
+            map.repeat.set( 2, 2 );
+            map.wrapS = map.wrapT = THREE.RepeatWrapping;
+	        var material2 = new THREE.MeshLambertMaterial({ map:map });
+	        //material = new THREE.MeshBasicMaterial( { color:0xff0000, wireframe:true } );
+	        geometry = new THREE.PlaneGeometry( 400, 400, 5, 5 );
+	        mesh = new THREE.Mesh( geometry, material2 );
+	        mesh.rotation.x = 270 *  Math.PI / 180;
+	        mesh.receiveShadow = true;
+	        scene.add( mesh );
+
+	        player = new Player( playerLoadCompHandler.bind( this ) );
+
+        }
+
+
+        function playerLoadCompHandler(){
+
+            player.mesh.scale.set( 40, 40, 40);
+            player.mesh.updateMatrix();
+            player.setPosition( 150, 0, 0 );
+	        player.mesh.castShadow  = true;
+	        player.mesh.name = 'player';
+        	scene.add( player.mesh );
+
+        	raycastManager = new RaycastManager( scene, camera );
+            raycastManager.add( player.mesh, true );
+            raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+
+
+            setTimeout(function(){
+	            $( '#loading' ).animate( { height:'0px' }, { duration:400 } );
+	        }, 2000 );
+
+        }
+
+
+
+
+		var rotX = 0;
+		var start = Date.now();
+        function animate() {
+
+			requestAnimationFrame( animate );
+
+			renderer.render( scene, camera );
+
+			if( player.mesh ) player.render( clock.getDelta() );
+
+
+            var time = .00003 * ( Date.now() - start );
+            sphereMesh.material.uniforms.time.value = time;
+            
+			
+			if( MYAPP.touch.downFlag ){
+
+				if( colorPicker.downFlag ) return;
+
+				if( Input.alt ){
+					rotateCamera();
+					return;
+				}
+
+				threeUVPaint.draw( MYAPP.touch, nowColor, 50 );
+			
+			}
+
+        }
+
+
+        function checkDownObject(){
+
+        	if(!raycaster) return;
+
+            var vector = screen2world();
+            vector.sub( camera.position.clone() ).normalize();
+            raycaster.set( camera.position.clone(), vector);
+            var obj = raycastManager.hitCheck(raycaster, 1000, 'mouse');
+
+            if (obj.hitFlag) {
+            	var pos = raycastManager.getFirstPointByName(obj.intersections, 'player');
+            	if( pos ) player.click();
+            }
+
+        }
+
+
+        function screen2world() {
+
+            var _touch = new THREE.Vector3(MYAPP.touch.x, MYAPP.touch.y, .5);
+            _touch.x = (_touch.x / window.innerWidth) * 2 - 1;
+            _touch.y = -(_touch.y / window.innerHeight) * 2 + 1;
+
+            //projector.unprojectVector(_touch, camera);
+            _touch.unproject( camera );
+
+            return _touch;
+        }
+
+
+        var cameraTargetRot = 90;
+        function rotateCamera(){
+
+        	cameraTargetRot += MYAPP.touch.offsetX;
+        	MYAPP.touch.offsetX = 0;
+        	cameraRot += -( cameraRot - cameraTargetRot ) * .1; 
+
+        	var radian = cameraRot * toRad;
+        	var x = Math.cos( radian ) * cameraRadius;
+        	var z = Math.sin( radian ) * cameraRadius;
+
+        	camera.position.set( x, cameraY, z );
+        	camera.lookAt( new THREE.Vector3( 0, 100, 0 ) );
+
+        }
+
+
+        function resize(){
+
+        	camera.aspect = window.innerWidth / window.innerHeight;
+        	camera.updateProjectionMatrix();
+        	renderer.setSize( window.innerWidth, window.innerHeight );
+
+        	threeUVPaint.resize();
+
+        }
+
+
+    </script>
+
+    <p id="outline">玉に左ドラッグでラクガキしれ。alt+左ドラッグで回転しゆ。<br>色を変えると何か変わるかも。クロムで見てや～。</p>
+	<div id="loading"></div>
+
+	</body>
+</html>

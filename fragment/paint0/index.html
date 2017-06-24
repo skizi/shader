@@ -1,0 +1,2039 @@
+
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>textuer</title>
+        <!--<script src="http://wgld.org/j/minMatrixb.js" type="text/javascript"></script>-->
+    <meta name="viewport" content="width=640">
+    <script src="../js/three.min.js"></script>
+    <script src="../js/jquery.js"></script>
+    <script src="../js/skizi.js"></script>
+    <script src="../js/loaders/OBJLoader.js"></script>
+    <script src="../js/ShaderParticles.min.js"></script>
+    <script src="../js/postprocessing/ShaderPass.js"></script>
+    <script src="../js/postprocessing/RenderPass.js"></script>
+    <script src="../js/postprocessing/MaskPass.js"></script>
+    <script src="../js/shaders/CopyShader.js"></script>
+    <script src="../js/shaders/HorizontalBlurShader.js"></script>
+    <script src="../js/shaders/VerticalBlurShader.js"></script>
+    <script src="../js/postprocessing/EffectComposer.js"></script>
+    <script src="three_paint.js"></script>
+        
+    <script type="x-shader/x-vertex" id="main-vshader">
+    varying vec2 vUv;
+    varying vec3 pos;
+
+    uniform sampler2D texture1;
+
+    
+    void main(void) {
+
+        vUv = uv;
+        pos = position;
+
+        vec4 tex1 = texture2D( texture1, uv );
+        vec3 pos2 = position + normal * length( tex1.xyz ) * 40.;
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+    }
+    </script>
+ 
+    <script type="x-shader/x-fragment" id="main-fshader">
+    varying vec2 vUv;
+    varying vec3 pos;
+
+    uniform sampler2D texture1;
+    uniform sampler2D texture2;
+    uniform vec2 texStart;
+    uniform float texSize;
+    uniform float stageHeight;
+    uniform int showOnTimeDraw;
+    uniform int showUV;
+    uniform vec3 drawColor;
+
+    
+    vec4 alphaBlend( vec4 c1, vec4 c2 ){
+        vec4 c = c1.a * c1.xyzw + ( 1.0 - c1.a ) * c2.xyzw;
+        return c;
+    }
+
+
+    float getMask( sampler2D texture, vec2 uv ){
+
+        float oneTexel = 2./512.;
+        float mask = .0;
+        vec4 tex = texture2D( texture, uv );
+        mask = min( length( tex * 100. ), 1. );
+
+        vec4 tex2 = texture2D( texture, uv + vec2( oneTexel, .0 ) );
+        float mask2 = 1. - min( length( tex2 * 100. ), 1. );
+        
+        vec4 tex3 = texture2D( texture, uv + vec2( -oneTexel, .0 ) );
+        float mask3 = 1. - min( length( tex3 * 100. ), 1. );
+
+        vec4 tex4 = texture2D( texture, uv + vec2( .0, oneTexel ) );
+        float mask4 = 1. - min( length( tex4 * 100. ), 1. );
+        
+        vec4 tex5 = texture2D( texture, uv + vec2( .0, -oneTexel ) );
+        float mask5 = 1. - min( length( tex5 * 100. ), 1. );
+
+        float per = .7;
+        mask = mask - min( mask2 + mask3 + mask4 + mask5, 1. ) * per;
+        if( mask < .0 ) mask = .0;
+
+        return mask;
+
+    }
+
+    
+    void main(void) {
+
+        if( showUV == 1 ){
+                gl_FragColor = vec4( vUv, 0, 1. );
+        }else{
+            
+            vec4 tex1 = texture2D( texture1, vUv );
+
+            if( showOnTimeDraw == 1 ){
+
+                float u = ( gl_FragCoord.x - texStart.x ) / texSize;
+                float v = 1.0 - min( 1.0, ( stageHeight - gl_FragCoord.y - texStart.y ) / texSize );  //reverse
+
+
+                vec4 tex2 = texture2D( texture2, vec2( u, v ) );
+                // float mask = getMask(texture2, vec2( u, v ));
+                // tex2.a *= mask;
+                tex2 = vec4( drawColor, tex2.a );
+                vec4 blend = alphaBlend( tex2, tex1 );
+                blend.a = 1.;
+                gl_FragColor = blend;
+
+            }else{
+
+                gl_FragColor = tex1;
+
+            }
+        }
+        
+    }
+    </script>
+    
+
+    <script type="x-shader/x-vertex" id="mix-vshader">
+    varying vec2 vUv;
+
+    
+    void main(void) {
+
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+    }
+    </script>
+ 
+    <script type="x-shader/x-fragment" id="mix-fshader">
+    varying vec2 vUv;
+    uniform sampler2D texture1;
+    uniform sampler2D texture2;
+    uniform sampler2D alphaTexture;
+    uniform int alphaBlendFlag;
+    uniform vec3 drawColor;
+
+    float texelSize = 1./512.;
+
+    vec4 alphaBlend( vec4 c1, vec4 c2 ){
+        vec4 c = c1.a * c1.xyzw + ( 1.0 - c1.a ) * c2.xyzw;
+        return c;
+    }
+    
+    void main(void) {
+
+        vec4 tex1 = texture2D( texture1, vUv );
+        vec4 tex2 = texture2D( texture2, vUv );
+        vec4 c;
+
+        if( alphaBlendFlag == 1 ){
+            
+            float a = texture2D( alphaTexture, vUv ).r;
+            /*a += texture2D( alphaTexture, vUv - vec2( texelSize, .0 ) ).r;
+            a += texture2D( alphaTexture, vUv + vec2( texelSize, .0 ) ).r;
+            a += texture2D( alphaTexture, vUv - vec2( .0, texelSize ) ).r;
+            a += texture2D( alphaTexture, vUv + vec2( .0, texelSize ) ).r;
+
+            texelSize *= 2.;
+            a += texture2D( alphaTexture, vUv - vec2( texelSize, .0 ) ).r;
+            a += texture2D( alphaTexture, vUv + vec2( texelSize, .0 ) ).r;
+            a += texture2D( alphaTexture, vUv - vec2( .0, texelSize ) ).r;
+            a += texture2D( alphaTexture, vUv + vec2( .0, texelSize ) ).r;
+            if( a > 1. ) a = 1.;
+            */
+            tex1.a *= a;
+            
+            tex1 = vec4( drawColor, tex1.a );
+            c = alphaBlend( tex1, tex2 );
+        }
+        c.a = 1.;
+        gl_FragColor = c;
+        
+    }
+    </script>
+    
+
+    <script type="x-shader/x-vertex" id="alpha-vshader">
+    varying vec2 vUv;
+
+    
+    void main(void) {
+
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+    }
+    </script>
+ 
+    <script type="x-shader/x-fragment" id="alpha-fshader">
+    varying vec2 vUv;
+    uniform sampler2D texture1;
+    uniform sampler2D texture2;
+    uniform int sameCheck;
+
+    float texelSize = 1./512.;
+    
+    void main(void) {
+
+        vec4 tex1 = texture2D( texture1, vUv );
+        vec4 tex2 = texture2D( texture2, vUv );
+        vec4 c;
+        
+        if( sameCheck == 1 ){
+            if( length(tex1) == length(tex2) && length(tex1) != 0. ){
+                c = vec4(1.);
+            }else{
+                c = vec4(0.);
+            }
+        }
+
+        gl_FragColor = c;
+        //gl_FragColor = vec4(vUv, 0., 1.);
+        
+    }
+    </script>
+
+
+    <script type="x-shader/x-vertex" id="paint-vshader">
+    varying vec2 vUv;
+    uniform int flipY;
+    varying vec3 vColor;
+
+    
+    void main(void) {
+
+        vUv = uv;
+
+
+       #ifdef USE_COLOR
+
+            #ifdef GAMMA_INPUT
+
+                vColor = color * color;
+
+            #else
+
+                vColor = color;
+
+            #endif
+
+        #endif
+
+        if( flipY == 1 ){
+            vUv.y = 1. - vUv.y;
+        }
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+    }
+    </script>
+ 
+    <script type="x-shader/x-fragment" id="paint-fshader">
+    varying vec2 vUv;
+    varying vec3 vColor;
+
+    uniform int showVColor;
+    uniform sampler2D texture1;
+    
+    void main(void) {
+
+        if( showVColor == 1 ){
+            gl_FragColor = vec4( vColor, 1. );
+        }else{
+            vec4 tex1 = texture2D( texture1, vUv );
+            gl_FragColor = tex1;
+            //gl_FragColor = vec4(vUv, 0., 1.);
+        }
+    }
+    </script>
+
+
+
+<script id="blur-vshader" type="x-shader/x-vertex">
+    varying vec2 vUv;
+
+    void main(){
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+    }
+</script>
+<script id="blur-fshader" type="x-shader/x-fragment">
+    precision mediump float;
+
+    uniform sampler2D tDiffuse;
+    uniform vec2 resolution;
+    uniform float weight[10];
+    uniform int horizontal;
+
+    varying vec2 vUv;
+
+    void main(){
+        vec3 destColor = vec3(0.0); //初期化をしないとgpuによってバグることがあるらしい
+        vec2 p = vUv;
+        float bufferScale;
+        if(horizontal == 1 ){
+            bufferScale = 1.0 / resolution.s;
+            destColor += texture2D(tDiffuse, (p + vec2(-9.0, 0.0) * bufferScale )).rgb * weight[9];
+            destColor += texture2D(tDiffuse, (p + vec2(-8.0, 0.0) * bufferScale )).rgb * weight[8];
+            destColor += texture2D(tDiffuse, (p + vec2(-7.0, 0.0) * bufferScale )).rgb * weight[7];
+            destColor += texture2D(tDiffuse, (p + vec2(-6.0, 0.0) * bufferScale )).rgb * weight[6];
+            destColor += texture2D(tDiffuse, (p + vec2(-5.0, 0.0) * bufferScale )).rgb * weight[5];
+            destColor += texture2D(tDiffuse, (p + vec2(-4.0, 0.0) * bufferScale )).rgb * weight[4];
+            destColor += texture2D(tDiffuse, (p + vec2(-3.0, 0.0) * bufferScale )).rgb * weight[3];
+            destColor += texture2D(tDiffuse, (p + vec2(-2.0, 0.0) * bufferScale )).rgb * weight[2];
+            destColor += texture2D(tDiffuse, (p + vec2(-1.0, 0.0) * bufferScale )).rgb * weight[1];
+            destColor += texture2D(tDiffuse, (p + vec2( 0.0, 0.0) * bufferScale )).rgb * weight[0];
+            destColor += texture2D(tDiffuse, (p + vec2( 1.0, 0.0) * bufferScale )).rgb * weight[1];
+            destColor += texture2D(tDiffuse, (p + vec2( 2.0, 0.0) * bufferScale )).rgb * weight[2];
+            destColor += texture2D(tDiffuse, (p + vec2( 3.0, 0.0) * bufferScale )).rgb * weight[3];
+            destColor += texture2D(tDiffuse, (p + vec2( 4.0, 0.0) * bufferScale )).rgb * weight[4];
+            destColor += texture2D(tDiffuse, (p + vec2( 5.0, 0.0) * bufferScale )).rgb * weight[5];
+            destColor += texture2D(tDiffuse, (p + vec2( 6.0, 0.0) * bufferScale )).rgb * weight[6];
+            destColor += texture2D(tDiffuse, (p + vec2( 7.0, 0.0) * bufferScale )).rgb * weight[7];
+            destColor += texture2D(tDiffuse, (p + vec2( 8.0, 0.0) * bufferScale )).rgb * weight[8];
+            destColor += texture2D(tDiffuse, (p + vec2( 9.0, 0.0) * bufferScale )).rgb * weight[9];
+        }else{
+            bufferScale = 1.0 / resolution.t;
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -9.0) * bufferScale )).rgb * weight[9];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -8.0) * bufferScale )).rgb * weight[8];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -7.0) * bufferScale )).rgb * weight[7];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -6.0) * bufferScale )).rgb * weight[6];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -5.0) * bufferScale )).rgb * weight[5];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -4.0) * bufferScale )).rgb * weight[4];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -3.0) * bufferScale )).rgb * weight[3];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -2.0) * bufferScale )).rgb * weight[2];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0, -1.0) * bufferScale )).rgb * weight[1];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  0.0) * bufferScale )).rgb * weight[0];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  1.0) * bufferScale )).rgb * weight[1];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  2.0) * bufferScale )).rgb * weight[2];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  3.0) * bufferScale )).rgb * weight[3];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  4.0) * bufferScale )).rgb * weight[4];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  5.0) * bufferScale )).rgb * weight[5];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  6.0) * bufferScale )).rgb * weight[6];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  7.0) * bufferScale )).rgb * weight[7];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  8.0) * bufferScale )).rgb * weight[8];
+            destColor += texture2D(tDiffuse, (p + vec2(0.0,  9.0) * bufferScale )).rgb * weight[9];
+        }
+        gl_FragColor = vec4(destColor, 1.0);
+    }
+</script>
+
+
+        <style>
+            *{
+                -moz-user-select: none;
+                -webkit-user-select: none;
+                -ms-user-select: none;
+                margin: 0;
+                padding:0;
+            }
+
+            body, html{
+                overflow: hidden;
+                background-color: #000;
+            }
+
+            canvas#color-picker1{
+                margin:0px 0px 0px 10px;
+                cursor:pointer;
+            }
+
+            canvas#color-picker3{
+                cursor:pointer;
+            }
+
+
+
+            div#color-picker{
+                width:340px;
+                padding:0px 0px 20px 0px;
+                
+                background-color:#fff;
+                border:1px solid #999;
+                
+                -webkit-border-radius: 8px;
+                -moz-border-radius: 8px;
+                border-radius: 8px;
+                -webkit-box-shadow: #999 0px 2px 10px;
+                -moz-box-shadow: #999 0px 2px 10px;
+                box-shadow: #999 0px 2px 10px;
+                behavior: url(pie/PIE.htc);
+                
+                
+                position:absolute;
+                right:50px;
+                top:50px;
+            }
+
+            div#color-picker h2{
+                margin:0px 0px 10px 0px;
+                padding:3px;
+                font-size:15px;
+                background-color:#ccc;
+                color:#333;
+                margin:0px 0px 10px 0px;
+                -webkit-border-radius: 8px 8px 0px 0px;
+                -moz-border-radius: 8px 8px 0px 0px;
+                border-radius: 8px 8px 0px 0px;
+                behavior: url(pie/PIE.htc);
+                
+                cursor:pointer;
+            }
+
+            h2#brush-title{
+                position:absolute;
+                top:10px;
+                left:30px;
+                color:#fff;
+                font-size:20px;
+            }
+
+            ul#brush{
+                margin:0;
+                padding:0;
+                position:absolute;
+                left: 25px;
+                top: 55px;
+            }
+
+            ul#brush li{
+                margin-right: 20px;
+                display: inline-block;
+            }
+
+            ul#brush li img{
+                width:50px;
+                background-color: #fff;
+                border-radius: 100px;
+            }
+
+        </style>
+        
+
+    </head>
+    <body>
+
+
+    <script>
+
+        /****************************************************************/
+        //継承
+        /****************************************************************/
+        var __extends = this.__extends || function (d, b) {
+            for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
+            function __() { this.constructor = d; }
+            __.prototype = b.prototype;
+            d.prototype = new __();
+        };
+
+
+
+
+        MYAPP = {
+            fps:30,
+            stageWidth:0,
+            stageHeight:0,
+            mousePosition:new THREE.Vector3(),
+            elapsedTime:0,
+            deltaTime:0
+        };
+        MYAPP.ua = new SKIZI.UserAgent();
+        MYAPP.touchManager = new SKIZI.TouchManager();
+        MYAPP.touchManager.movePreventDefaultNoneFlag = true;
+        MYAPP.touch = SKIZI.touch;
+
+        var clock;
+
+        var Input = { 
+                x:0,
+                y:0,
+                z:0,
+                alt:false,
+                run:false
+            };
+
+        var debugEle;
+        var colorImg;
+
+
+        //colorPicker
+        var colorPicker;
+        var colorPicker1;
+        var colorPicker1Context;
+        var colorPicker2;
+        var colorPicker2Context;
+        var colorPicker3;
+        var colorPicker3Context;
+
+        //brush
+        var brushCanvas;
+        var brushContext;
+        var brushType = 'circle';
+        var nowBrush;
+        var brushImages = [];
+        var brushImageMaxW = 0;
+        var brushImageMaxH = 0;
+
+        var paintWorker;
+        var ab = new Float32Array(1);
+        var SUPPORT_TRANSFERABLE = false;
+        var sendMessages;
+
+
+
+
+        $( window ).load( init );
+        function init(){
+
+            $( document.body ).css({ margin:0 });
+
+            var stage = SKIZI.utils.getStageProperty();
+            MYAPP.stageWidth = stage.clientW;
+            MYAPP.stageHeight = stage.clientH;
+
+            //initWorker();
+            initThree();
+
+            debugEle = $('<div>');
+            debugEle.css({ position:'absolute', top:'0px', color:'#fff' });
+            $( document.body ).append( debugEle );
+
+            //colorPicker
+            initColorPicker();
+
+            //brush
+            initBrush();
+
+
+
+
+
+            window.onkeydown = keyDown.bind(this);
+            window.onkeyup = keyUp.bind(this);
+
+            MYAPP.touchManager.setTouchStartFunc( touchStartHandler.bind( this ) );
+            MYAPP.touchManager.setTouchMoveFunc( touchMoveHandler.bind( this ) );
+
+
+            //animate();
+            resize();
+            $(window).resize( resize );
+        }
+
+
+        function keyDown(e) {
+            e.preventDefault();
+
+            if (e.keyCode === 37 || e.keyCode === 65) {
+                Input.x = -1;
+            }
+            if (e.keyCode === 38 || e.keyCode === 87) {
+                Input.z = 1;
+            }
+
+            if (e.keyCode === 39 || e.keyCode === 68) {
+                Input.x = 1;
+            }
+
+            if (e.keyCode === 40 || e.keyCode === 83) {
+                Input.z = -1;
+            }
+
+            if (e.keyCode === 32) {
+                Input.y = 1;
+            }
+
+            if (e.keyCode === 16) {
+                Input.run = true;
+            }
+
+            if (e.keyCode === 18) {
+                Input.alt = true;
+            }
+
+            if (e.keyCode === 13) {
+                Vars.enterDown();
+            }
+        };
+
+        function keyUp(e) {
+            e.preventDefault();
+
+            if (e.keyCode === 37 || e.keyCode === 65) {
+                Input.x = 0;
+            }
+            if (e.keyCode === 38 || e.keyCode === 87) {
+                Input.z = 0;
+            }
+
+            if (e.keyCode === 39 || e.keyCode === 68) {
+                Input.x = 0;
+            }
+
+            if (e.keyCode === 40 || e.keyCode === 83) {
+                Input.z = 0;
+            }
+
+            if (e.keyCode === 32) {
+                Input.y = 0;
+            }
+
+            if (e.keyCode === 16) {
+                Input.run = false;
+            }
+
+            if (e.keyCode === 18) {
+                Input.alt = false;
+            }
+        };
+
+
+        function initBrush(){
+
+            if( MYAPP.ua.platform != 'pc' ) $( '#brush' ).hide();
+            var brushBtns = $( '#brush li a' );
+            for( var i = 0; i < brushBtns.length; i++ ){
+                $( brushBtns[i] ).on( 'mousedown', { index:i }, brushClickHandler.bind( this ) );
+                brushImages.push( $( brushBtns[i] ).find( 'img' )[0] );
+            }
+
+            var canvas = $( '<canvas>' );
+            canvas.attr({ width:512, height:512 });
+            canvas.css({ width:512, height:512, display:'block' });
+            $( canvas ).hide();
+            $( document.body ).append( canvas );
+            brushCanvas = canvas[0];
+            brushContext = canvas[0].getContext("2d");
+
+            selectBrush( 5 );
+        }
+
+
+        function brushClickHandler( e ){
+
+            var index = e.data.index;
+            selectBrush( index );
+
+        }
+
+
+        function selectBrush( index ){
+
+            brushType = 'image';
+            if( index == 0 ) brushType = 'circle';
+            nowBrush = brushImages[ index ];
+            
+            brushImageMaxW = $( nowBrush ).attr( 'maxW' );
+            brushImageMaxH = $( nowBrush ).attr( 'maxH' );
+
+        }
+
+
+        function touchStartHandler( e ){
+
+            MYAPP.threeManager.setMouse3d();
+
+        }
+
+        
+
+
+        function touchMoveHandler( e ){
+            e.preventDefault();
+
+            if( MYAPP.ua.platform != 'pc' &&
+                e.touches.length > 1 ){
+                rotateCamera();
+            }
+
+        }
+
+
+
+        //------------------------three--------------------
+        var scene;
+        var renderer;
+        var light;
+        var camera;
+        var sphereMesh;
+        var groundMesh;
+        var dummyMesh;
+
+        var bullets = [];
+        var nowBullet = 0;
+        var bulletLength = 6;
+        var bulletImage;
+        var bulletCanvas;
+        var bulletContext;
+        var bulletParticle;
+        var bulletParticleDirection;
+
+        var cameraRadius = 200;
+        var cameraRot = 90;
+        var targetCameraRot = 90;
+        var toRad = Math.PI / 180;
+
+        var nowColor = [255, 0, 0, 255];
+
+        var canvasSize = 512;
+        var threePaint;
+
+
+
+
+        function initThree(){
+
+            var loader = new THREE.OBJLoader();
+            loader.load( 'models/cube.obj', assetLoadComp.bind( this ));
+
+        }
+        
+
+        function assetLoadComp( assets ) {
+
+
+            scene = new THREE.Scene();
+
+            renderer = new THREE.WebGLRenderer({ alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor( 0x000000, 0 );
+
+
+            if( MYAPP.ua.platform == 'pc' ) renderer.shadowMapEnabled = true;
+            document.body.appendChild(renderer.domElement);
+
+
+            
+
+            var fov = 100;
+            var w = window.innerWidth;
+            var h = window.innerHeight;
+            var aspect = w / h;
+            camera = new THREE.PerspectiveCamera(fov, aspect, 1, 2000);
+            //camera = new THREE.OrthographicCamera( w / - 2, w / 2, h / 2, h / - 2, 1, 2000 );
+            camera.position.x = 0;
+            camera.position.y = 150;
+            camera.position.z = cameraRadius;
+            camera.lookAt( new THREE.Vector3( 0, 100, 0 ) );
+
+            
+            light = new THREE.DirectionalLight(0xffffff, .5);
+            light.position.set( 100, 400, 400);
+            light.castShadow = true;
+            scene.add(light);
+
+            //light.shadowCamera = new THREE.PerspectiveCamera(10, 1, .1, 200);
+            var size = canvasSize;
+            light.shadowCamera = new THREE.OrthographicCamera( size / - 2, size / 2, size / 2, size / - 2, 1, 2000 );
+            light.shadowCamera.shadowMapWidth = canvasSize;
+            light.shadowCamera.shadowMapHeight = canvasSize;
+            light.shadowCamera.position.copy( light.position );
+            light.shadowCamera.lookAt( new THREE.Vector3() );
+            light.shadowCamera.updateMatrixWorld();
+            light.shadowCamera.matrixWorldInverse.getInverse( light.shadowCamera.matrixWorld );
+
+
+            
+            clock = new THREE.Clock();
+            MYAPP.raycastManager = new MYAPP.RaycastManager( scene, camera );
+            MYAPP.threeManager = new MYAPP.ThreeManager( camera );
+
+
+            threePaint = new ThreePaint( canvasSize, renderer, scene, camera );
+            threePaint.resize( MYAPP.stageWidth, MYAPP.stageHeight );
+
+            
+            //sphereMeshは
+            //masterRenderTargetのテクスチャと
+            //cacheMeshに割り当ててあるdrawCacheCanvasを
+            //sphereMeshに２つ目のuvマップを作成して割り当てたものを
+            //合成するのが良いのでは
+
+            //なぜかdrawCacheCanvasをalpha 0でクリアすると変な表示になる...　→ rectではなくclearRect使えば良い
+
+
+
+            var mainMaterial = new THREE.ShaderMaterial({
+                vertexShader: $('#main-vshader')[0].textContent,
+                fragmentShader: $('#main-fshader')[0].textContent,
+                uniforms: {
+                    texture1: { 
+                        type: 't',
+                        value: threePaint.masterRenderTarget
+                    },
+                    texture2: {
+                        type: 't',
+                        value: threePaint.paintingMap
+                    },
+                    texStart:{
+                        type: 'v2',
+                        value:new THREE.Vector2()
+                    },
+                    texSize:{
+                        type: 'f',
+                        value: 0
+                    },
+                    stageHeight:{
+                        type: 'f',
+                        value:MYAPP.stageHeight
+                    },
+                    showOnTimeDraw:{
+                        type: 'i',
+                        value: 0
+                    },
+                    showUV:{
+                        type:'i',
+                        value:0
+                    },
+                    drawColor:{
+                        type: 'v3',
+                        value:new THREE.Vector3()
+                    }
+                },
+                needsUpdate:true,
+                //transparent:true
+            });
+
+            var geometry = new THREE.SphereGeometry( 100, 40, 40 );
+            
+            // var materials = [
+            //     new THREE.MeshBasicMaterial({ map:masterRenderTarget, transparent:true }),
+            //     new THREE.MeshBasicMaterial({ map:paintMap, transparent:true })
+            // ];
+            // var sphereMaterial = new THREE.MeshFaceMaterial( materials );
+            /*
+            sphereMesh = new THREE.Mesh( geometry, mainMaterial );
+            sphereMesh.name = 'mouseMesh';
+            sphereMesh.position.y = 150;
+            //sphereMesh.rotation.x = 45 * toRad;
+            sphereMesh.castShadow  = true;
+            MYAPP.raycastManager.add( sphereMesh, true );
+            scene.add( sphereMesh );
+            */
+
+            
+            assets.traverse( function ( child ) {
+                if( child.type == 'Mesh' ){
+                    sphereMesh = child;
+                    sphereMesh.castShadow  = true;
+                    child.material = mainMaterial;
+                    child.scale.set( 50, 50, 50 );
+                    child.geometry.computeVertexNormals();
+                    child.name = 'mouseMesh';
+                    MYAPP.raycastManager.add( sphereMesh, true );
+                    scene.add( child );
+                }
+            });
+            
+
+
+            setTimeout(function(){
+
+                var screenVec = vecWorld2screen( sphereMesh.position.clone() );
+                screenVec.x = MYAPP.stageWidth * .5;
+                screenVec.y = MYAPP.stageHeight * .5;
+                //console.log(screenVec);
+
+                var size = MYAPP.stageWidth;
+                if( size < MYAPP.stageHeight ) size = MYAPP.stageHeight;
+
+                var halfSize = size * .5;
+                var texStart = new THREE.Vector2( screenVec.x - halfSize, screenVec.y - halfSize );
+                sphereMesh.material.uniforms.texStart.value = texStart;
+                sphereMesh.material.uniforms.texSize.value = size;
+                sphereMesh.material.uniforms.showOnTimeDraw.value = 1;
+            
+            }.bind( this ), 500);
+
+            
+            
+            
+
+
+            //床
+            var map = THREE.ImageUtils.loadTexture( 'img/ground0_512.jpg' );
+            map.repeat.set( 2, 2 );
+            map.wrapS = map.wrapT = THREE.RepeatWrapping;
+            var groundMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                map:map
+            });
+            //material = new THREE.MeshBasicMaterial( { color:0xff0000, wireframe:true } );
+            geometry = new THREE.PlaneGeometry( 1000, 1000, 10, 10 );
+            groundMesh = new THREE.Mesh( geometry, groundMat );
+            groundMesh.rotation.x = 270 *  Math.PI / 180;
+            groundMesh.receiveShadow = true;
+            scene.add( groundMesh );
+
+
+
+
+
+        //     var geometry = new THREE.SphereGeometry( 70, 7, 7 );
+        //     dummyMesh = new THREE.Mesh( geometry, new THREE.MeshBasicMaterial({ map:texRenderTarget }) );
+        //     //scene.add( dummyMesh );
+        //     //dummyMesh.position.y = 100;
+        //     // dummyMesh.position.x = 200;
+        // console.log( sphereMesh.matrixWorld );
+        // var m2 = new THREE.Matrix4();//.copy( sphereMesh.matrixWorld );なぜかMatrix4のcopy、cloneが機能しない。
+        // m2.makeRotationFromQuaternion( sphereMesh.quaternion );
+        // m2.setPosition( sphereMesh.position );
+        // console.log( m2 );
+        // var pos = dummyMesh.position.clone();
+        // dummyMesh.position.applyMatrix4(m2);
+
+            initBullet();
+
+
+
+
+            setInterval( animate, 1000 / MYAPP.fps );
+
+        }
+
+
+        var rotX = 0;
+        function animate() {
+
+
+            MYAPP.elapsedTime = clock.getElapsedTime();
+            MYAPP.deltaTime = clock.getDelta();
+
+            renderer.render( scene, camera );
+
+            if( Input.alt ){
+                rotateCamera();
+                threePaint.saveTexture();
+                return;
+            }
+
+            if( MYAPP.touch.downFlag ){
+                threePaint.draw( MYAPP.touch, nowColor, 20 );
+            }
+
+        }
+
+
+
+        function rotateCamera(){
+
+            targetCameraRot+= MYAPP.touch.offsetX * ( 60 / MYAPP.fps );
+            cameraRot += ( targetCameraRot - cameraRot ) / 5;
+            var radian = cameraRot * toRad;
+            var x = Math.cos( radian ) * cameraRadius;
+            var z = Math.sin( radian ) * cameraRadius;
+
+            camera.position.set( x, 150, z );
+            camera.lookAt( new THREE.Vector3( 0, 100, 0 ) );
+
+        }
+
+
+
+        function drawImage( x, y, image, c, ctx ){
+
+            //create brush
+            brushContext.save();
+            brushContext.clearRect( 0, 0, 512, 512 );
+            brushContext.drawImage( image, 0, 0 )
+            brushContext.globalCompositeOperation = 'source-in';//'lighter';
+            brushContext.fillStyle = 'rgb('+c+')';
+            brushContext.fillRect( 0, 0, 512, 512 );
+            brushContext.restore();
+
+
+
+            var half0W = brushImageMaxW / 2;
+            var half0H = brushImageMaxH / 2;
+            
+            ctx.save();
+            
+            //set rad
+            var rad = 180 * toRad;
+            var offsetPos = getDrawPosition( MYAPP.touch.x + 30, MYAPP.touch.y );
+            if( offsetPos ){
+               var offsetX = offsetPos.x - x;
+               var offsetY = offsetPos.y - y;
+               rad += Math.atan2(offsetY, offsetX);
+            }
+
+
+            //rotation draw
+            ctx.translate( x, y );
+            ctx.rotate( rad );
+            ctx.drawImage( brushCanvas, -half0W, -half0H )
+            ctx.rotate( -rad );
+            ctx.translate( -x, -y );
+            
+            //
+            ctx.restore();
+
+        }
+
+
+        function webgl2canvas( ctx, x, y, w, h ){
+
+            renderer.render( scene, camera );
+            addImgFlg = true;
+            var _ctx = renderer.getContext( 'experimental-webgl', {preserveDrawingBuffer: false});
+            var imgData = ctx.createImageData( w, h );
+            var pixels = new Uint8Array( w*h*4 );
+            _ctx.readPixels( x, y, w, h, _ctx.RGBA, _ctx.UNSIGNED_BYTE, pixels );
+            imgData.data.set( pixels, 0, pixels.length );
+
+            ctx.putImageData(imgData, 0, 0);
+
+        }
+
+
+        function renderTarget2canvas( ctx, _renderTarget, w, h ){
+
+            var pixels = new Uint8Array( w * h * 4);
+            var imgData = ctx.createImageData( w, h );
+
+            var gl = renderer.context;
+            gl.bindFramebuffer(gl.FRAMEBUFFER, _renderTarget.__webglFramebuffer);
+            gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null );
+
+            imgData.data.set( pixels, 0, pixels.length );
+
+            ctx.putImageData(imgData, 0, 0);
+
+        }
+
+
+        function getProjectorMatrix( pos, targetPos, mesh ){
+
+            var projectorMatrix = new THREE.Matrix4();
+            // projectorMatrix.set( 0.5, 0.0, 0.0, 0.5,
+            //                       0.0, 0.5, 0.0, 0.5,
+            //                       0.0, 0.0, 0.5, 0.5,
+            //                       0.0, 0.0, 0.0, 1.0 );
+            projectorMatrix.set( 0.5, 0.0, 0.0, 0.5,
+                                  0.0, -0.5, 0.0, 0.5,
+                                  0.0, 0.0, 1.0, 0.0,
+                                  0.0, 0.0, 0.0, 1.0 );
+
+            light.shadowCamera.position.copy( pos );
+            light.shadowCamera.lookAt( targetPos );
+            light.shadowCamera.updateMatrixWorld();
+            light.shadowCamera.matrixWorldInverse.getInverse( light.shadowCamera.matrixWorld ); //matrixWorldを逆行列に設定？
+
+            //
+            projectorMatrix.multiply( light.shadowCamera.projectionMatrix );
+            projectorMatrix.multiply( light.shadowCamera.matrixWorldInverse );
+
+            if( mesh ){
+                var m = mesh.matrix.clone();
+                projectorMatrix.multiply( m );
+            }
+
+            return projectorMatrix;
+        }
+
+
+        function resize(){
+
+            var stage = SKIZI.utils.getStageProperty();
+            MYAPP.stageWidth = stage.clientW;
+            MYAPP.stageHeight = stage.clientH;
+
+            if( threePaint ) threePaint.resize( MYAPP.stageWidth, MYAPP.stageHeight );
+
+            if( camera && renderer ){
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize( window.innerWidth, window.innerHeight );
+            }
+
+        }
+
+
+
+
+
+
+
+         /*---------------------------initColorPickerEvent----------------------------*/
+        function initColorPicker(){
+
+            colorPicker = $( '#color-picker' );
+            if( MYAPP.ua.platform != 'pc' ) colorPicker.hide();
+            colorPicker.find( 'h2' ).on( 'mousedown touchstart', colorPickerHeaderDownHandler );
+            colorPicker.find( 'h2' ).on( 'mouseup touchend', colorPickerHeaderUpHandler );
+            
+            colorPicker1 = $( '#color-picker1' );
+            colorPicker1Context = colorPicker1[0].getContext( "2d" );
+            colorPicker1.on( 'mousedown', colorPicker1DownHandler );
+            colorPicker1.on( 'mouseup', colorPickerUpHandler );
+            
+            colorPicker2 = document.getElementById( 'color-picker2' );
+            colorPicker2Context = colorPicker2.getContext( "2d" );
+            
+            colorPicker3 = $( '#color-picker3' );
+            colorPicker3Context = colorPicker3[0].getContext( "2d" );
+            colorPicker3.on( 'mousedown', colorPicker3DownHandler );
+            colorPicker3.on( 'mouseup', colorPickerUpHandler );
+
+            createColorPicker();
+
+        }
+
+
+        function createColorPicker(){
+            
+            colorPicker1Context.fillStyle = "rgb(255, 255, 255)";
+            colorPicker1Context.fillRect( 0, 0, 19, 253 );
+            
+            var u = Math.floor(255 / 6);
+            var ra = new Array(0,-1,0,0,1,0);
+            var ga = new Array(1,0,0,-1,0,0);
+            var ba = new Array(0,0,1,0,0,-1);
+
+            var r = 255;
+            var g = 0;
+            var b = 0;
+            for (var i = 0; i < 255; i++) {
+                colorPicker1Context.fillStyle = "rgb(" +r+ ", " +g+ ", " +b+ ")";
+                colorPicker1Context.fillRect( 0, i, 19, 1 );
+                var s = Math.floor(i / u);
+                r+= ra[s] * 6;
+                g+= ga[s] * 6;
+                b+= ba[s] * 6;
+            }
+            
+            //繧ｫ繝ｩ繝ｼ繝斐ャ繧ｫ繝ｼ縺ｧ驕ｸ謚槭＠縺ｦ縺�ｋ濶ｲ
+            colorPicker2Context.fillStyle = "rgb(255, 0, 0)";
+            colorPicker2Context.fillRect( 0, 0, 30, 20 );
+            
+            //
+            colorPicker3FillRect( [255, 0, 0] );
+            
+        }
+
+
+
+
+
+        //-------------------------------colorPickerContainer-------------------------------
+        function colorPickerHeaderDownHandler( e ){
+            
+            var relativeTouch = getRelativeMousePosition( colorPicker );
+            oldX = relativeTouch.x;
+            oldY = relativeTouch.y;
+            $( document.body ).on( 'mousemove', colorPickerMoveHandler );
+          
+        }
+
+
+        function colorPickerMoveHandler( e ){
+            
+            var x = MYAPP.touch.x - oldX;
+            var y = MYAPP.touch.y - oldY;
+            colorPicker.css( { left:x + 'px', top:y + 'px' } );
+            
+        }
+
+        
+        function colorPickerHeaderUpHandler( e ){
+            
+            $( document.body ).off( 'mousemove touchmove', colorPickerMoveHandler );
+            
+        }
+        
+
+
+        //-------------------------------colorPicker1-------------------------------
+        function colorPicker1DownHandler(e){
+
+            threePaint.saveTexture();
+
+            colorPicker1.on( 'mousemove', colorPicker1MoveHandler );
+            $( document.body ).on( 'mouseup', colorPicker1UpHandler );
+            
+            var relativeTouch = getRelativeMousePosition( colorPicker1 );
+            var col = getColor( colorPicker1Context, relativeTouch );
+            nowColor = col;
+                
+            //濶ｲ陦ｨ遉ｺ縺ｮ螟画峩
+            colorPicker2Context.fillStyle = "rgba(" +col+ ")";
+            colorPicker2Context.fillRect( 0, 0, 30, 20 );
+            
+            colorPicker3FillRect( col );
+
+        }
+
+
+
+        function colorPickerUpHandler( e ){
+            
+            var c = { r:nowColor[0], g:nowColor[1], b:nowColor[2] };
+            for( var i = 0; i < bulletLength; i++ ){
+                bullets[i].colorChange( c );
+            }
+
+        }
+
+
+        function colorPicker1MoveHandler(e) {
+                            
+            //濶ｲ縺ｮ蜿門ｾ
+            var relativeTouch = getRelativeMousePosition( colorPicker1 );
+            var col = getColor( colorPicker1Context, relativeTouch );
+            //text001.text=col002.toString(16);
+                            
+            //濶ｲ陦ｨ遉ｺ縺ｮ螟画峩
+            colorPicker2Context.fillStyle = "rgba(" +col+ ")";
+            colorPicker2Context.fillRect( 0, 0, 30, 20 );
+            
+            nowColor = col;
+
+            colorPicker3FillRect( col );
+
+        }
+
+        function colorPicker1UpHandler(e) {
+            
+            $( document.body ).off( 'mouseup' );
+            colorPicker1.off( 'mousemove' );
+            
+        }
+
+
+
+
+
+        //---------------------------colorPicker3----------------------------
+        function colorPicker3DownHandler(e){
+
+            threePaint.saveTexture();
+            
+            //addEventListener(Event.ENTER_FRAME,ent002);
+            colorPicker3.on( 'mousemove', colorPicker3MoveHandler );
+            $( document.body ).on( 'mouseup', colorPicker3UpHandler );
+            
+            //濶ｲ縺ｮ蜿門ｾ
+            var relativeTouch = getRelativeMousePosition( colorPicker3 );
+            var col = getColor( colorPicker3Context, relativeTouch );
+            //text001.text=col002.toString(16);
+            nowColor = col;
+                
+            //濶ｲ陦ｨ遉ｺ縺ｮ螟画峩
+            colorPicker2Context.fillStyle = "rgba(" +col+ ")";
+            colorPicker2Context.fillRect( 0, 0, 30, 20 );
+        }
+
+
+        function colorPicker3MoveHandler(e) {
+                            
+            var relativeTouch = getRelativeMousePosition( colorPicker3 );
+            var col = getColor( colorPicker3Context, relativeTouch );
+            nowColor = col;
+            colorPicker2Context.fillStyle = "rgba(" +col+ ")";
+            colorPicker2Context.fillRect( 0, 0, 30, 20 );
+    
+        }
+
+
+        function colorPicker3UpHandler(e) {
+            
+            $( document.body ).off( 'mouseup' );
+            colorPicker3.off( 'mousemove' );
+            
+        }
+
+
+        function colorPicker3FillRect( color ){
+
+            colorPicker3Context.fillStyle = "rgb(255, 255, 255)";
+            colorPicker3Context.fillRect( 0, 0, 256, 256 );
+
+            colorPicker3Context.beginPath();
+            var grad  = colorPicker3Context.createLinearGradient( 0, 0, 256, 0 );
+            grad.addColorStop(0,'rgba( ' + color[0] + ',' + color[1] + ',' + color[2] + ', 0 )');
+            grad.addColorStop(1,'rgba( ' + color[0] + ',' + color[1] + ',' + color[2] + ', 1 )');
+            colorPicker3Context.fillStyle = grad;
+            colorPicker3Context.rect(0,0,256,256);
+            colorPicker3Context.fill();
+            
+            colorPicker3Context.beginPath();
+            grad  = colorPicker3Context.createLinearGradient( 0, 0, 0, 256 );
+            grad.addColorStop(0,'rgba( 0, 0, 0, 0 )');
+            grad.addColorStop(1,'rgba( 0, 0, 0, 1 )');
+            colorPicker3Context.fillStyle = grad;
+            colorPicker3Context.rect(0,0,256,256);
+            colorPicker3Context.fill();
+
+        }
+
+
+
+
+
+        //-----------------------------utils--------------------------------
+        function getColor( ctx, pos ){
+
+            var imageData = ctx.getImageData( pos.x, pos.y, 1, 1 );
+            var data = imageData.data;
+            //text001.text=col002.toString(16);
+            return [data[0], data[1], data[2], 255];
+        
+        }
+
+
+        function getRelativeMousePosition( target ){
+
+            var offset = target.offset();
+            var x = offset.left;
+            var y = offset.top - $( window ).scrollTop();
+            var relativeX = MYAPP.touch.x - x;
+            var relativeY = MYAPP.touch.y - y;
+
+            return { x:relativeX, y:relativeY };
+        }
+
+
+        MYAPP.ThreeManager = (function(){
+            
+            var raycaster;
+            var rayCheckLastTime = 0;
+            var camera;
+            var touch;
+            //var projector;
+
+            function ThreeManager( _camera ){
+
+                camera = _camera;
+                raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+                touch = SKIZI.touch;
+                //projector = new THREE.Projector();
+
+            }
+
+
+            var p = ThreeManager.prototype;
+
+            p.screen2world = function() {
+
+                var _touch = new THREE.Vector3(touch.x, touch.y, .5);
+                _touch.x = (_touch.x / MYAPP.stageWidth) * 2 - 1;
+                _touch.y = -(_touch.y / MYAPP.stageHeight) * 2 + 1;
+
+                //projector.unprojectVector(_touch, camera);
+                _touch.unproject( camera );
+
+                return _touch;
+            }
+
+            p.world2screen = function(object) {
+                var pos = object.position.clone();
+                pos.project(camera);
+                pos.x = (pos.x + 1) / 2 * MYAPP.stageWidth;
+                pos.y = -(pos.y + 1) / 2 * MYAPP.stageHeight;
+
+                return pos;
+            }
+
+            p.getMouseTo = function(target) {
+                var worldToScreenVector = this.world2screen(target);
+                var m = new THREE.Vector3( touch.x, touch.y, 0);
+                var dist = m.distanceTo(worldToScreenVector);
+                var direction = m.sub(worldToScreenVector);
+                var direction2 = direction.clone();
+                direction.normalize();
+
+                var x = 0;
+                var z = 0;
+                if (dist > 20) {
+                    x = -direction.x;
+                    z = -direction.y;
+                }
+
+                return { direction: new THREE.Vector3(x, 0, z), dist: dist, direction2: direction2 };
+            }
+
+            p.setMouse3d = function(){
+
+                if ( .1 < MYAPP.elapsedTime - rayCheckLastTime) {
+                    rayCheckLastTime = MYAPP.elapsedTime;
+
+                    var vector = this.screen2world();
+                    vector.sub( camera.position.clone() ).normalize();
+                    raycaster.set( camera.position.clone(), vector);
+
+                    var obj = MYAPP.raycastManager.hitCheck(raycaster, 1000, 'mouse');
+                    if (obj.hitFlag) {
+                        var pos = MYAPP.raycastManager.getFirstPointByName(obj.intersections, 'mouseMesh');
+                        if (pos) MYAPP.mousePosition.copy(pos);
+                        bulletParticleDirection = obj.intersections[0].face.normal;
+                    } else {
+                        MYAPP.mousePosition = new THREE.Vector3();
+                    }
+
+                }
+
+            }
+
+            return ThreeManager;
+
+        })();
+
+
+        MYAPP.RaycastManager = (function () {
+
+            var scene;
+            var camera;
+
+            var intersected;
+            var baseColor = 0x333333;
+            var intersectColor = 0x00D66B;
+            var raycastTargets = [];
+
+            var cursorChangeTargets = [];
+            var cursorChangeTargetsLength = 0;
+
+
+
+            function RaycastManager( _scene, _camera ) {
+
+                scene = _scene;
+                camera = _camera;
+
+                this.raycastType = 'normal';
+                this.mouseMeshY = .1;
+                this.mouseTopMeshY = 10;
+                this.mouseMesh;
+                this.mouseTopMesh;
+                this.mouseOverTarget;
+                this.downTarget;
+
+                var geometry = new THREE.PlaneGeometry(300, 300, 10, 10);
+                var material = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, visible: false });
+                this.mouseMesh = new THREE.Mesh(geometry, material);
+                this.mouseMesh.rotation.x = 270 * SKIZI.utils.toRad;
+                this.mouseMesh.name = 'mouseMesh';
+                scene.add(this.mouseMesh);
+                this.add(this.mouseMesh);
+
+                // Vars.pushMouseDownFunc(mouseDown.bind(this));
+                // Vars.pushMouseMoveFunc(mouseMove.bind(this));
+                // Vars.pushMouseUpFunc(mouseUp.bind(this));
+
+
+                setInterval( this.animate.bind( this ), 1000 / MYAPP.fps );
+            }
+
+
+            var p = RaycastManager.prototype;
+
+            p.raycast = function(raycaster) {
+
+                var intersections = raycaster.intersectObjects(raycastTargets, true);
+
+                return intersections;
+            }
+
+            p.add = function(object, mouseOverTargetFlag) {
+                if (typeof mouseOverTargetFlag === "undefined") { mouseOverTargetFlag = false; }
+                
+                raycastTargets.push(object);
+
+                if (mouseOverTargetFlag) {
+                    cursorChangeTargets.push(object);
+                    cursorChangeTargetsLength = cursorChangeTargets.length;
+                }
+            }
+
+            p.remove = function(object) {
+                var name = object.name;
+
+                var index = -1;
+                for (var i = 0; i < raycastTargets.length; i++) {
+                    if (raycastTargets[i].name == name) index = i;
+                }
+                if (index != -1) raycastTargets.splice(index, 1);
+
+                index = -1;
+                for (i = 0; i < cursorChangeTargetsLength; i++) {
+                    if (name == cursorChangeTargets[i].name) index = i;
+                }
+                if (index != -1) cursorChangeTargets.splice(index, 1);
+                cursorChangeTargetsLength = cursorChangeTargets.length;
+            }
+
+            p.hitCheck = function(raycaster, dist, type) {
+                if (typeof type === "undefined") { type = ''; }
+                var obj = {};
+                var hitFlag = false;
+                var _mouseOverFlag = false;
+                var mouseOutFlag = false;
+                var oldMouseOverTarget;
+                if (this.mouseOverTarget) oldMouseOverTarget = this.mouseOverTarget;
+
+                intersections = this.raycast(raycaster);
+            
+                var intersectionsLength = intersections.length;
+                if (intersectionsLength > 0) {
+
+                    if (intersected != intersections[0].object) {
+                        intersected = intersections[0].object;
+                    }
+
+                    var distance = intersections[0].distance;
+                    if (distance > 0 && distance < dist) {
+                        hitFlag = true;
+                        obj.intersections = intersections;
+
+                        if (type == 'mouse') {
+                            for (var i = 0; i < intersectionsLength; i++) {
+                                for (var j = 0; j < cursorChangeTargetsLength; j++) {
+                                    if (intersections[i].object.name == cursorChangeTargets[j].name && intersections[i].object.visible) {
+                                        if (!_mouseOverFlag)
+                                            this.mouseOverTarget = intersections[i].object;
+                                        _mouseOverFlag = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (intersected) {
+                    intersected = null;
+                }
+
+                if (type == 'mouse') {
+                    if (_mouseOverFlag) {
+                        document.body.style.cursor = 'pointer';
+                        //this.mouseOverTarget.parent.mouseOver();
+                    } else {
+                        this.mouseOverTarget = null;
+                    }
+
+                    if (this.mouseOverTarget != oldMouseOverTarget) {
+                        document.body.style.cursor = 'auto';
+                        //if (oldMouseOverTarget)
+                            //oldMouseOverTarget.parent.mouseOut();
+                    }
+                }
+
+                obj.hitFlag = hitFlag;
+
+                return obj;
+            }
+
+
+            p.getFirstPointByName = function(intersections, name) {
+                var length = intersections.length;
+                var point;
+                for (var i = 0; i < length; i++) {
+                    if (intersections[i].object.name == name && !point) {
+                        point = new THREE.Vector3().copy(intersections[i].point);
+                    }
+                }
+
+                return point;
+            }
+
+
+            p.getFirstObjectByName = function(intersections, name) {
+                var length = intersections.length;
+                var object;
+                for (var i = 0; i < length; i++) {
+                    if (intersections[i].object.name == name && !object) {
+                        object = intersections[i];
+                    }
+                }
+
+                return object;
+            }
+
+            // var downFlag = false;
+            // function mouseDown() {
+            //     if (this.mouseOverTarget) {
+            //         this.mouseOverTarget.parent.mouseClick();
+
+            //         downFlag = true;
+            //         var downX = Vars.mouseX;
+            //         var downY = Vars.mouseY;
+
+            //         setTimeout(function () {
+            //             if (!Vars.downFlag || downX != Vars.mouseX || downY != Vars.mouseY || !this.mouseOverTarget)
+            //                 return;
+            //             this.downTarget = this.mouseOverTarget;
+            //             this.downTarget.parent.mouseDown();
+            //         }.bind(this), 100);
+            //     }
+            // }
+
+            // function mouseMove() {
+            //     if (this.mouseOverTarget) {
+            //         this.mouseOverTarget.parent.mouseMove();
+            //     }
+            // }
+
+            // function mouseUp() {
+            //     if (downFlag) {
+            //         if (this.downTarget) {
+            //             this.downTarget.parent.mouseUp();
+            //             this.downTarget = null;
+            //         } else {
+            //             if (Vars.mouseDragDistX == 0 && Vars.mouseDragDistY == 0 && this.mouseOverTarget) {
+            //             }
+            //         }
+            //     }
+
+            //     downFlag = false;
+            // }
+
+            p.animate = function() {
+                /*
+                requestAnimationFrame(function () {
+                    return this.animate();
+                }.bind( this ));
+                */
+                if (camera) {
+                    this.mouseMesh.position.copy( camera.position);
+                    this.mouseMesh.position.y = this.mouseMeshY;
+                }
+
+                // if (this.downTarget) {
+                //     this.downTarget.parent.drag();
+                // }
+            }
+
+            return RaycastManager;
+
+        })();
+
+
+
+        function initBullet(){
+
+            var canvas = $( '<canvas>' );
+            canvas.attr({ width:128, height:128 });
+            canvas.css({ width:128, height:128, display:'block' });
+            $( canvas ).hide();
+            $( document.body ).append( canvas );
+            bulletImage = $( '#bullet-image' );
+            bulletImage.hide();
+            //$( document.body ).append( bulletImage );
+            bulletCanvas = canvas[0];
+            bulletContext = canvas[0].getContext("2d");
+
+            for( var i = 0; i < bulletLength; i++ ){
+                var bullet = new MYAPP.Bullet( bulletCallBack );
+                bullets.push( bullet );
+                scene.add( bullet );
+            }
+
+
+            bulletParticle = new MYAPP.Particle0( 10 );
+            bulletParticle.position.y = 50;
+            bulletParticle.off();
+            scene.add( bulletParticle );
+
+        }
+
+
+        function blendCanvas( ctx, image, blendColor ){
+
+            var w = 512;
+            var h = 512;
+            var brend_fn = function( a, b ){ return a * b / 255; };
+
+            ctx.save();
+            ctx.clearRect( 0, 0, w, h );
+            ctx.drawImage( image, 0, 0 );
+            var a_imageData = ctx.getImageData(0, 0, w, h);
+            for(var y = 0; y < h; y++){
+                for(var x = 0; x < w; x++){
+                    var ptr = (y * w + x ) * 4;
+                    var aR = a_imageData.data[ptr + 0];
+                    var aG = a_imageData.data[ptr + 1];
+                    var aB = a_imageData.data[ptr + 2];
+                    var aA = a_imageData.data[ptr + 3];
+                    
+                    a_imageData.data[ptr + 0] = brend_fn( aR, blendColor.r );
+                    a_imageData.data[ptr + 1] = brend_fn( aG, blendColor.g );
+                    a_imageData.data[ptr + 2] = brend_fn( aB, blendColor.b );
+                    a_imageData.data[ptr + 3] = aA;
+                }
+            }
+            ctx.putImageData(a_imageData, 0, 0);
+            ctx.restore();
+
+            return ctx;
+        }
+
+
+
+        MYAPP.Bullet = (function( _super ){
+
+            __extends(Bullet, _super);
+
+            var uvs = [];
+            var speed = 4 * ( 60 / MYAPP.fps );
+            var uvIndex = 0;
+            var uvIndexMax = 4;
+            var defaultPosition = new THREE.Vector3( 0, 9999, 0 );
+            var radiusY = 2;
+
+
+            function Bullet( _callback ){
+
+                _super.call( this );
+
+
+                this.callback = _callback;
+                this.throwFlag = false;
+                this.targetPosition = new THREE.Vector3();
+                this.drawPosition = { x:0, y:0 };
+                this.firstDistance = 0;
+
+                uvs[0] = new THREE.Vector2(0, 0);
+                uvs[1] = new THREE.Vector2(.5, .5);
+                uvs[2] = new THREE.Vector2(0, .5);
+                uvs[3] = new THREE.Vector2(.5, 0);
+
+                var map= new THREE.Texture( bulletCanvas );
+                map.repeat.set(.5, .5);
+                map.offset.copy(uvs[uvIndex]);
+                var material = new THREE.SpriteMaterial({ map: map });
+                this.mesh = new THREE.Sprite(material);
+                this.mesh.scale.set( 4, 4, 4 );
+                this.add( this.mesh );
+
+                this.colorChange( { r:255, g:0, b:0 } );
+
+                //this.animate();
+                setInterval( this.animate.bind( this ), 1000 / MYAPP.fps );
+            }
+
+            var p = Bullet.prototype;
+            p.animate = function(){
+                /*
+                requestAnimationFrame(function () {
+                    return this.animate();
+                }.bind( this ));
+                */
+                if( !this.throwFlag ) return;
+
+                //sprite sheet animate
+                uvIndex++;
+                if( uvIndex >= uvIndexMax ) uvIndex = 0;
+                this.mesh.material.map.offset.copy(uvs[uvIndex]);
+
+
+                //move
+                var distVec = this.targetPosition.clone().sub( this.position.clone() );
+                var dist = distVec.length();
+                var per = dist / this.firstDistance;
+                var rad = ( per * 180 ) * toRad;
+                var pluseY = radiusY * Math.sin( rad );
+                if( dist < 4 ){
+                    this.throwFlag = false;
+                    console.log( "hit!" );
+                    if( this.callback ) this.callback( this.drawPosition, this.targetPosition );
+                    this.position.copy( defaultPosition );
+                    this.targetPosition.copy( defaultPosition );
+                    return;
+                }
+
+                var direction = distVec.normalize();
+                this.position.add( direction.multiplyScalar( speed ) );
+                this.position.y += pluseY;
+
+            }
+
+
+            p.throw = function(){
+
+                this.throwFlag = true;
+                var dist = this.targetPosition.clone().sub( this.position.clone() );
+                this.firstDistance = dist.length();
+
+            }
+
+            p.colorChange = function( c ){
+
+                blendCanvas( bulletContext, bulletImage[0], c );
+                var map = new THREE.Texture( bulletCanvas );
+                map.repeat.set(.5, .5);
+                map.offset.copy(uvs[uvIndex]);
+                map.needsUpdate = true;
+                this.mesh.material.map = map;
+
+            }
+
+            return Bullet;
+
+        })( THREE.Object3D );
+
+
+        function bulletCallBack( drawPos, bulletPos ){
+
+            paintStep2( drawPos );
+
+            //
+            bulletParticle.position.copy( bulletPos );
+            bulletParticle.on();
+            var c = 'rgb(' + nowColor[0] + ',' + nowColor[1] + ',' + nowColor[2] + ')';
+            bulletParticle.setColor( c );
+
+            //回転用のベクトル2つ
+            var vec0 = bulletParticle.position.clone().normalize();
+            var vec1 = bulletParticleDirection.clone().normalize();
+
+            //パーティクルを回転
+            //外績で回転軸を求める
+            var dir = new THREE.Vector3();
+            dir.crossVectors(vec0, vec1).normalize();
+
+            //内積で回転させる角度を求める
+            var dot = vec0.dot(vec1);
+            var rad = Math.acos(dot);
+
+            //quaternionに変換して回転させる
+            var q = new THREE.Quaternion();
+            q.setFromAxisAngle(dir, rad);
+            bulletParticle.rotation.setFromQuaternion(q);
+
+            setTimeout( function(){
+                bulletParticle.off();
+            }, 100);
+
+        }
+
+
+
+        MYAPP.Particle0 = (function( _super ){
+
+            __extends(Particle0, _super);
+
+            var speed =  ( 60 / MYAPP.fps );
+
+            function Particle0( _scale ){
+
+                _super.call( this );
+
+                this.alive = 1;
+                this.flag = false;
+                this.time = 0;
+                this.interval = .1;
+
+                // Create particle group
+                var map = THREE.ImageUtils.loadTexture( 'img/particle0.png' );
+                map.flipY = false;
+                this.particleGroup = new SPE.Group({
+                    texture: map,
+                    maxAge: 0.5 * ( 1 / speed ),
+                    hasPerspective: true,
+                    colorize: true,
+                    transparent: true,
+                    alphaTest: 0.5,
+                    depthWrite: false,
+                    depthTest: true,
+                    blending: THREE.NormalBlending
+                });
+
+                // Create particle emitter 0
+                this.Untitled1Emitter = new SPE.Emitter( {
+                    type: 'cube',
+                    particleCount: 200,
+                    position: new THREE.Vector3( 0, 0, 0 ),
+                    positionSpread: new THREE.Vector3( 0, 0, 0 ),
+                    acceleration: new THREE.Vector3( 0, -8.5 * _scale * speed, 0 ),
+                    accelerationSpread: new THREE.Vector3( 7 * _scale * speed, 0, 7 * _scale * speed ),
+                    velocity: new THREE.Vector3( 0, 1.5 * _scale * speed, 0 ),
+                    velocitySpread: new THREE.Vector3( 7 * _scale * speed, 1 * speed, 7 * _scale * speed ),
+                    sizeStart: .1 * _scale,
+                    sizeStartSpread: .5 * _scale,
+                    sizeMiddle: .15 * _scale,
+                    sizeMiddleSpread: .5 * _scale,
+                    sizeEnd: .1 * _scale,
+                    sizeEndSpread: 0,
+                    angleStart: 0,
+                    angleStartSpread: 0,
+                    angleMiddle: 0,
+                    angleMiddleSpread: 0,
+                    angleEnd: 0,
+                    angleEndSpread: 0,
+                    angleAlignVelocity: undefined,
+                    colorStart: new THREE.Color( 0xffffff ),
+                    colorStartSpread: new THREE.Vector3( 0, 0, 0 ),
+                    colorMiddle: new THREE.Color( 0xff0000 ),
+                    colorMiddleSpread: new THREE.Vector3( 0, 0, 0 ),
+                    colorEnd: new THREE.Color( 0xffffff ),
+                    colorEndSpread: new THREE.Vector3( 0, 0, 0 ),
+                    opacityStart: 1,
+                    opacityStartSpread: 0,
+                    opacityMiddle: 1,
+                    opacityMiddleSpread: 0,
+                    opacityEnd: 1,
+                    opacityEndSpread: 0,
+                    duration: null,
+                    alive: 1,
+                    isStatic: false
+                } );
+
+
+                this.particleGroup.addEmitter( this.Untitled1Emitter );
+
+                // Add mesh to your scene. Adjust as necessary.
+                this.add( this.particleGroup.mesh );
+
+                //this.animate();
+                setInterval( this.animate.bind( this ), 1000 / MYAPP.fps );
+            }
+
+            Particle0.prototype.animate = function () {
+                /*
+                requestAnimationFrame(function () {
+                    return this.animate();
+                }.bind( this ));
+                */
+                //var delta = MYAPP.deltaTime;
+                this.particleGroup.tick(0.016);//delta
+            };
+
+            Particle0.prototype.on = function () {
+                this.flag = true;
+                this.Untitled1Emitter.alive = 1;
+            };
+
+            Particle0.prototype.off = function () {
+                this.flag = false;
+                this.Untitled1Emitter.alive = 0;
+            };
+
+            Particle0.prototype.setColor = function( color ){
+                var c = new THREE.Color( color );
+                this.Untitled1Emitter.colorStart = c;
+                this.Untitled1Emitter.colorMiddle = c;
+                this.Untitled1Emitter.colorEnd = c;
+            }
+
+            return Particle0;
+
+        })( THREE.Object3D );
+
+
+        function getForward(obj) {
+            var vector = new THREE.Vector3(0, 0, -1);
+            vector.applyEuler(obj.rotation);
+            return vector;
+        }
+
+
+        function vecWorld2screen(pos) {
+
+            pos.project(camera);
+            pos.x = (pos.x + 1) * .5 * MYAPP.stageWidth;
+            pos.y = MYAPP.stageHeight -(pos.y + 1) * .5 * MYAPP.stageHeight;
+
+            return pos;
+        }
+
+
+
+
+        // Worker
+        function initWorker(){
+
+            if (!paintWorker) paintWorker = new Worker('paintWorker.js');
+            paintWorker.transferableMessage = paintWorker.webkitPostMessage || paintWorker.postMessage;
+
+            ab[0] = -1;
+            paintWorker.transferableMessage(ab, [ab.buffer]);
+            if (ab.length === 0) SUPPORT_TRANSFERABLE = true;
+            
+
+            paintWorker.onmessage = function( event ){
+
+                var data = event.data;
+
+                if (data.type) {
+                    switch (data.type) {
+                        case 'workerScriptLoadComp':
+                        var supportFlag = 0;
+                        if( SUPPORT_TRANSFERABLE ) supportFlag = 1;
+                        paintWorker.transferableMessage({
+                            type: 'init',
+                            supportTransFerable: supportFlag
+                        });
+                        break;
+
+                        case 'initComp':
+                            break;
+
+                    }
+
+                }
+
+            }
+        }
+
+
+
+        function postWorker(){
+
+            if (SUPPORT_TRANSFERABLE) {
+                data = { message: sendMessage };
+                paintWorker.transferableMessage(data, [data.message.buffer]);
+            } else {
+                paintWorker.transferableMessage(data); //ieは引数がないとバグる
+            }
+
+        }
+
+    </script>
+
+
+        
+        <div id="color-picker">
+            <h2>colorPicker</h2>
+            <canvas id="color-picker1" width="19" height="253"></canvas>
+            <canvas id="color-picker2" width="30" height="20"></canvas>
+            <canvas id="color-picker3" width="256" height="256"></canvas>
+        </div>
+
+        <h2 id="brush-title">Brushes</h2>
+        <ul id="brush">
+            <li>
+                <a href="javascript:void(0);">
+                    <img src="img/brush/stamp0.png" maxW="100" maxH="100">
+                </a>
+            </li>
+        </ul>
+
+        <img src="img/bullet0.png" id="bullet-image">
+
+    </body>
+</html>

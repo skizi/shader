@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Color Change Demo</title>
+        <meta name="viewport" content="width=640,initial-scale=.5">
+
+		<style>
+			body{
+				margin:0;
+				background-color: #000;
+				overflow: hidden;
+			}
+
+            div#cover{
+                width:100%;
+                height:100%;
+                background-color: #fff;
+                position: fixed;
+                top:0px;
+                transition-duration:1s;
+                transition-property:opacity;
+                transition-delay:1s;
+            }
+
+            p#loading{
+                width:100%;
+                margin-top:-20px;
+                text-align: center;
+                position:absolute;
+                top:50%;
+                left:0px;
+                color:#333;
+                font-size:40px;
+                font-style: italic;
+                opacity:0;
+                transition-duration:.5s;
+                transition-property:opacity;
+            }
+		</style>
+    <script src="../../js/three.min.js"></script>
+	<script src="../../js/loaders/BinaryLoader.js"></script>
+    <script src="../../js/loaders/MTLLoader.js"></script>
+    <script src="../../js/loaders/OBJMTLLoader.js"></script>
+    <script src="../../js/threejs/postprocessing/EffectComposer.js"></script>
+    <script src="../../js/threejs/postprocessing/ShaderPass.js"></script>
+    <script src="../../js/threejs/postprocessing/RenderPass.js"></script>
+    <script src="../../js/threejs/postprocessing/BloomPass.js"></script>
+    <script src="../../js/threejs/shaders/ConvolutionShader.js"></script>
+    <script src="../../js/threejs/shaders/CopyShader.js"></script>
+    <script src="../../js/threejs/shaders/HorizontalTiltShiftShader.js"></script>
+    <script src="../../js/threejs/shaders/VerticalTiltShiftShader.js"></script>
+    <script src="../../js/threejs/shaders/FXAAShader.js"></script>
+    <script src="../../js/postprocessing/MaskPass.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+		
+	
+		
+	<script type="x-shader/x-vertex" id="vshader">
+		
+    	uniform vec3 lightPos;
+		uniform sampler2D noiseTexture;
+		uniform float time;
+    	uniform vec3 cameraPos;
+    	uniform float lambda;
+    	uniform float freq;
+
+        const int waveLength = 30;
+        //uniform int waveLength;
+        uniform float radiuses[waveLength];
+    	uniform float wavePowers[waveLength];
+    	uniform vec3 wavePositions[waveLength];
+        uniform vec3 colors[waveLength];
+		attribute vec2 uvs;
+        uniform int nowIndex;
+
+        uniform float power2;
+
+		varying vec3 vNormal;
+		varying vec2 vUv;
+		varying vec4 diffuse;
+		varying float specular;
+		
+		const float pi = 3.14159265;
+		const float lineWidth = .3;
+
+        varying vec2 matCapUv;
+
+		
+		float getDiffuse(){
+
+	        vec3 _vNormal = normalize(normalMatrix * normal);
+	        vec4 mvLightPos = viewMatrix * vec4( lightPos, 1.0 );
+	        vec4 mvPos = modelViewMatrix * vec4( position, 1.0 );
+	        vec3 s = normalize( mvLightPos.xyz - mvPos.xyz );
+	        float d = 1.0 * max(dot(s, _vNormal), 0.0);
+
+            // vec4 mvCameraPos = viewMatrix * vec4( cameraPos, 1. );
+            // vec3 v = normalize( mvCameraPos.xyz - mvPos.xyz );
+            // vec3 h = normalize( s + v );
+            // specular = pow( max( dot( _vNormal, h ), 0.0 ), 100.0 );
+            // d += specular;
+
+	        return d;
+		}
+
+
+		float getWave(  vec3 wavePos, float power, vec3 pos, float radius ){
+
+			float distance = length( pos - wavePos );
+
+			float per = .0;
+			float abs = abs( radius - distance );
+			if( abs <= lineWidth ){
+				per = 1.0 - abs / lineWidth;
+			}
+
+			return per * power2;
+		}
+
+        vec4 alphaBlend( vec4 c1, vec4 c2 ){
+            vec4 c = c1.a * c1.xyzw + ( 1.0 - c1.a ) * c2.xyzw;
+            return c;
+        }
+
+
+		void main(){
+
+      		vUv = uv;
+
+            //
+      		float wave0 = 0.;
+            float power = .01;
+            for( int i = 0; i < waveLength; i++ ){
+      			vec3 wavePos = wavePositions[i];
+                //power = ( 14. - radiuses[ i ] ) * .01;
+    	        wave0 += getWave( wavePos, power, position, radiuses[ i ] );
+            }
+
+	        vec3 p = position + normal * wave0;
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( p, 1.0 );
+			vNormal = normal;
+
+
+            //色の計算
+			float distance = length( position - wavePositions[ nowIndex ] );
+            float per = radiuses[nowIndex] / distance;
+
+            int oldIndex = nowIndex-1;
+            if( oldIndex < 0 ) oldIndex = 29;
+
+            float alpha = radiuses[nowIndex] - distance;
+            if( alpha < 0. ) alpha = 0.;
+            if( alpha > 1. ) alpha = 1.;
+
+            vec3 _diffuse = vec3( getDiffuse() );
+            vec4 diffuse1 = vec4( _diffuse * colors[nowIndex], alpha );
+            vec4 diffuse2 = vec4( _diffuse * colors[oldIndex], 1. );
+            
+            //色のブレンド
+            diffuse = alphaBlend( diffuse1, diffuse2 );
+
+
+            //matCap
+            vec3 e = normalize( vec3( modelViewMatrix * vec4( position, 1.0 ) ) );
+            vec3 n2 = normalize( normalMatrix * normal );
+
+            vec3 r = reflect( e, n2 );
+            float m = 2.0 * sqrt( r.x * r.x + r.y * r.y + ( r.z + 1.0 ) * ( r.z+1.0 ) );
+            matCapUv = vec2( r.x / m + 0.5,  r.y / m + 0.5 );
+            
+		}
+		</script>
+		
+		<script type="x-shader/x-fragment" id="fshader">
+			
+		uniform sampler2D noiseTexture;
+		uniform sampler2D texture;
+		uniform float time;
+		
+		varying vec3 vNormal;
+		varying vec2 vUv;
+		varying vec4 diffuse;
+		varying float specular;
+		
+        uniform sampler2D tMatcap;
+        varying vec2 matCapUv;
+		
+
+		void main(void){
+			
+			// vec4 noiseTex = texture2D( noiseTexture,  vec2( vUv.x + time, vUv.y ) );
+			// vec4 tex = texture2D( texture,  vec2( vUv.x + time, vUv.y ) );
+
+            vec4 matCap =texture2D( tMatcap, matCapUv );
+
+			gl_FragColor = diffuse + matCap * 2.;
+			
+		}
+		</script>
+		
+        <script type="x-shader/x-vertex" id="matcap-vshader">
+
+        uniform vec3 lightPos;
+        uniform vec3 cameraPos;
+        varying vec4 diffuse;
+        varying float specular;
+        varying vec2 matCapUv;
+        varying vec2 vUv;
+        
+        float getDiffuse(){
+
+            vec3 _vNormal = normalize(normalMatrix * normal);
+            vec4 mvLightPos = viewMatrix * vec4( lightPos, 1.0 );
+            vec4 mvPos = modelViewMatrix * vec4( position, 1.0 );
+            vec3 s = normalize( mvLightPos.xyz - mvPos.xyz );
+            float d = 1.0 * max(dot(s, _vNormal), 0.0);
+
+            vec4 mvCameraPos = viewMatrix * vec4( cameraPos, 1. );
+            vec3 v = normalize( mvCameraPos.xyz - mvPos.xyz );
+            vec3 h = normalize( s + v );
+            specular = pow( max( dot( _vNormal, h ), 0.0 ), 100.0 );
+            d += specular;
+
+            return d;
+        }
+
+        void main(){
+
+            vUv = uv;
+            diffuse = vec4( vec3( getDiffuse() * .3 ), 1.);
+
+            //matCap
+            vec3 e = normalize( vec3( modelViewMatrix * vec4( position, 1.0 ) ) );
+            vec3 n2 = normalize( normalMatrix * normal );
+
+            vec3 r = reflect( e, n2 );
+            float m = 2.0 * sqrt( r.x * r.x + r.y * r.y + ( r.z + 1.0 ) * ( r.z+1.0 ) );
+            matCapUv = vec2( r.x / m + 0.5,  r.y / m + 0.5 );
+            
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+        }
+
+        </script>
+
+    <script>
+		
+	</script>
+	</head>
+	<body>
+
+
+    <script>
+
+    	var MYAPP = {
+    		mousePosition:new THREE.Vector3()
+    	};
+
+        var scene;
+        var renderer;
+        var camera;
+        var light;
+
+        var clock = new THREE.Clock();
+
+        var stageWidth = window.innerWidth;
+        var stageHeight = window.innerHeight;
+    	var touchManager;
+
+    	var nowWave = 0;
+        var maxWavePower = .1;
+    	var waveLength = 30;
+    	var wavePowers = [];
+    	var wavePositions = [];
+        var colors = [];
+        var nowWave = 0;
+        var radiuses = [];
+    	var lambda = 3.0;
+		var radius = 6;
+        var nowIndex = 0;
+
+        var delta;
+
+		var raycaster;
+		var raycastManager;
+        var rayCheckTime = 0;
+        var maxRayCheckTime = .3;
+
+        var composer;
+
+
+        var carBodyMesh;
+        var carMeshs = [];
+        var wheelMaterial;
+        var carMaterial;
+
+        var iphoneVer = 99;
+
+
+
+	    $( window ).load(function(){
+
+            var u = window.navigator.userAgent.toLowerCase();
+            if( u.indexOf("iphone") != -1 ){
+                if( screen.height < 500 ){
+                    iphoneVer = 4;
+                }else if( screen.height == 568 ){
+                    iphoneVer = 5;
+                }else{
+                    iphoneVer = 6;
+                }
+            }
+
+            $( '#loading' ).css({ opacity:1 });
+
+            var type = 0;
+            for( var i = 0; i < waveLength; i++ ){
+                wavePowers[i] = 0;
+                wavePositions[i] = new THREE.Vector3();
+                var r = Math.random();
+                var g = Math.random();
+                var b = Math.random();
+                if( type == 0 ) r = 1;
+                if( type == 1 ) g = 1;
+                if( type == 2 ) b = 1;
+                colors[i] = new THREE.Vector3( r, g, b );
+                radiuses[i] = 0;
+
+                type++;
+                if( type == 3 ) type = 0;
+            }
+            colors[0] = new THREE.Vector3( 0, .2, 1);
+
+	        touchManager = new MYAPP.TouchManager();
+	        touchManager.setTouchStartFunc( downHandler.bind( this ) );
+	        touchManager.setTouchMoveFunc( moveHandler.bind( this ) );
+	        touchManager.setTouchEndFunc( upHandler.bind( this ) );
+
+            initScene();
+            initMaterial();
+            initObject();
+            initComposer();
+
+            raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+            raycastManager = new MYAPP.RaycastManager( scene, camera );
+
+            resize();
+            $( window ).resize( resize );
+
+            var fps = 30;
+            if( iphoneVer < 6 ) fps = 20;
+            setInterval( animate, 1000 / fps );
+            animate();
+
+	    });
+
+
+        function initScene(){
+
+            scene = new THREE.Scene();
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setClearColor( 0xffffff, 0 );
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMapEnabled = true;
+            renderer.shadowMapSoft = true;
+            renderer.shadowMapType = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+            if( iphoneVer < 6 ) renderer.setPixelRatio( .5 );
+
+            var fov = 100;
+            var aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(fov, aspect, 1, 1000);
+            camera.position.x = 0;
+            camera.position.y = 5;
+            camera.position.z = radius;
+            camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
+
+
+            
+            light = new THREE.DirectionalLight(0xffffff, .8);
+            light.position.set( 10, 15, 10);
+            if( iphoneVer > 5 ) light.castShadow = true;
+            //light.shadowCameraVisible = true;
+            light.shadowCameraFov = 50;
+            light.shadowBias = 0.0001;
+            light.shadowMapWidth = 1024;
+            light.shadowMapHeight = 1024;
+            light.shadowCameraNear = 1; //四角錐台の上面の位置
+            light.shadowCameraFar = 30; //四角錐台の下面の位置
+            light.shadowCameraLeft = -10;    //描画範囲左範囲
+            light.shadowCameraRight = 10;    //描画範囲右範囲
+            light.shadowCameraTop = 10;  //描画範囲上範囲
+            light.shadowCameraBottom = -10;  //描画範囲下範囲
+            scene.add(light);
+
+        }
+
+
+		function downHandler(){
+
+            var oldIndex = nowWave -1;
+            if( oldIndex < 0 ) oldIndex = 0;
+            radiuses[ oldIndex ] = 0;
+
+            var obj = { radius:0 };
+            $(obj).animate({ radius:14 }, {
+                duration:2000,
+                progress:function ( anim ) {
+                    var _nowWave = arguments[0];
+                    var radius = arguments[1].elem.radius;
+                    radiuses[ _nowWave ] = radius;
+                    carMaterial.uniforms.radiuses.value = radiuses;
+                }.bind( this, nowWave ),
+                complete:function(){
+                    var _nowWave = arguments[0];
+                    radiuses[ _nowWave ] = 14;
+                }.bind( this, nowWave )
+            })
+
+            carMaterial.uniforms.nowIndex.value = nowWave;
+            carMaterial.uniforms.wavePositions.value = wavePositions;
+            carMaterial.uniforms.wavePowers.value = wavePowers;
+            carMaterial.uniforms.radiuses.value = radiuses;
+
+            setPosition();
+            nowWave++;
+            if( nowWave == waveLength ) nowWave = 0;
+		}
+
+
+		function moveHandler(){
+			
+            rayCheckTime += delta;
+            if ( maxRayCheckTime > rayCheckTime )return;
+            rayCheckTime = 0;
+
+    		
+		}
+
+
+		function upHandler(){
+
+			
+		}
+
+		function setPosition(){
+
+			setMousePosition();
+
+			var vec = carBodyMesh.worldToLocal( MYAPP.mousePosition );
+			wavePositions[ nowWave ].copy( vec );
+            wavePowers[ nowWave ] = maxWavePower;
+            radiuses[ nowWave ] = 0.0;
+
+		}
+
+
+		function setMousePosition(){
+
+	        var vector = screen2world();
+	        vector.sub( camera.position.clone() ).normalize();
+	        raycaster.set( camera.position.clone(), vector);
+
+			 var obj = raycastManager.hitCheck(raycaster, 200, 'mouse');
+            if (obj.hitFlag) {
+                var pos = raycastManager.getFirstPointByName(obj.intersections, 'body');
+                if (pos) MYAPP.mousePosition.copy(pos);
+            } else {
+                MYAPP.mousePosition = new THREE.Vector3();
+            }
+
+		}
+
+
+
+        function initMaterial(){
+
+    		var noiseTexture = THREE.ImageUtils.loadTexture('img/noise2.jpg');
+    		var diffuseTexture = THREE.ImageUtils.loadTexture('img/diffuse.jpg');
+            var matcapTexture = THREE.ImageUtils.loadTexture('img/matcap3.jpg');
+    		noiseTexture.wrapS = noiseTexture.wrapT = THREE.RepeatWrapping;
+    		diffuseTexture.wrapS = diffuseTexture.wrapT = THREE.RepeatWrapping;
+            carMaterial = new THREE.ShaderMaterial({
+    			vertexShader: document.getElementById('vshader').textContent,
+    			fragmentShader: document.getElementById('fshader').textContent,
+    			uniforms: {
+    				noiseTexture: { 
+    					type: 't',
+    					value: noiseTexture
+    					},
+    				texture:{
+    					type: 't',
+    					value: diffuseTexture
+    				},
+                    tMatcap:{
+                        type: 't',
+                        value: matcapTexture
+                    },
+    				time:{
+    					type:"f",
+    					value:0.0
+    				},
+                    lightPos: {
+                        type: 'v3',
+                        value: light.position.clone()
+                    },
+                    cameraPos:{
+                        type: 'v3',
+                        value: camera.position.clone()
+                    },
+                    lambda:{
+                    	type:'f',
+                    	value:lambda
+                    },
+                    freq:{
+                    	type:'f',
+                    	value:.1
+                    },
+                    waveLength:{
+                        type:'i',
+                        value:waveLength
+                    },
+                    wavePowers:{
+                    	type:'fv1',
+                    	value:wavePowers
+                    },
+                    power2:{
+                        type:'f',
+                        value:.2
+                    },
+                    radiuses:{
+                    	type:'fv1',
+                    	value:radiuses
+                    },
+                    wavePositions:{
+                        type:'v3v',
+                        value:wavePositions
+                    },
+                    colors:{
+                        type:'v3v',
+                        value:colors
+                    },
+                    nowIndex:{
+                        type:'i',
+                        value:nowIndex
+                    }
+    			},
+    			attributes:{
+                    uvs:{
+                    	type:'f',
+                    	value:[]
+                    }
+    			},
+    			//wireframe:true,
+    			side:THREE.DoubleSide
+    			
+    		});
+
+            wheelMaterial = new THREE.ShaderMaterial({
+                vertexShader: document.getElementById('matcap-vshader').textContent,
+                fragmentShader: document.getElementById('fshader').textContent,
+                uniforms: {
+                    noiseTexture: { 
+                        type: 't',
+                        value: noiseTexture
+                        },
+                    texture:{
+                        type: 't',
+                        value: diffuseTexture
+                    },
+                    tMatcap:{
+                        type: 't',
+                        value: matcapTexture
+                    },
+                    lightPos: {
+                        type: 'v3',
+                        value: light.position.clone()
+                    },
+                    cameraPos:{
+                        type: 'v3',
+                        value: camera.position.clone()
+                    },
+                },
+                //wireframe:true,
+                //side:THREE.DoubleSide
+                
+            });
+
+        }
+
+
+
+        function initObject(){
+
+            var geometry = new THREE.PlaneGeometry( 20, 20, 2, 2 );
+            var mesh = new THREE.Mesh( geometry, new THREE.MeshBasicMaterial({ color:0xffffff }) );
+            mesh.rotation.x = 270 * Math.PI / 180;
+            mesh.receiveShadow = true;
+            scene.add( mesh );
+
+
+            var objLoader = new THREE.OBJMTLLoader();
+            objLoader.load("models/ford.obj", "models/ford.mtl", function ( object ) {
+
+                $( '#loading' ).css({ opacity:0 });
+                $( '#cover' ).css({ opacity:0 });
+
+                var children = object.children;
+                var length = children.length;
+                for( var i = 0; i < length; i++ ){
+                    var child = children[i];
+                    console.log( child );
+
+                    if( child && child.type == 'Mesh' ){
+
+                        var name = child.material.name;
+    console.log(name);
+                        child.name = name;
+                        child.position.set( 0, 0, 0 );
+                        child.geometry.computeVertexNormals();
+                        child.geometry.computeFaceNormals();
+                        child.castShadow = true;
+                        carMeshs.push( child );
+                        scene.add( child );
+
+                        if( name == 'body' ){
+                            child.material = carMaterial;
+                            child.material.needsUpdate = true;
+                            var uvs = getUv( child.geometry );
+                            carMaterial.attributes.uvs.value = uvs;
+                            carBodyMesh = child;
+                            raycastManager.add( carBodyMesh, true );
+                        }
+
+                        if( name == 'tire' ){
+                            child.material = new THREE.MeshLambertMaterial({ color:0x3c3c3c });
+                            child.material.needsUpdate = true;
+                        }
+
+                        if( name == 'wheel' ){
+                            child.material = new THREE.MeshPhongMaterial({ color:0x2d2d2d, emissive:0x000000, specular:0x202020 });
+                            //child.material = wheelMaterial;
+                            child.material.needsUpdate = true;
+                        }
+
+                        if( name == 'grass' ){
+                            child.material = new THREE.MeshPhongMaterial({ color:0x3c3c3c, emissive:0x000000, specular:0xffffff, transparent:true, opacity:.5 });
+                            child.material.needsUpdate = true;
+                        }
+
+                        if( name == 'inside2' ){
+                            child.material = new THREE.MeshLambertMaterial({ color:0x1e1e1e, emissive:0x000000 });
+                            child.material.needsUpdate = true;
+                        }
+
+                        if( name == 'mirror' ){
+                            child.material = new THREE.MeshPhongMaterial({ color:0x2d2d2d, emissive:0xc3c3c3, specular:0x393939 });
+                            child.material.needsUpdate = true;
+                        }
+                        
+                    }
+                }
+
+            });
+
+        }
+
+
+		function getUv( geometry ){
+
+	    	var uvs = [];
+	        var faceLength = geometry.faces.length;
+	        for( var i = 0; i < faceLength; i++ ){
+				var uv0 = geometry.faceVertexUvs[0][i][0].clone();
+				var uv1 = geometry.faceVertexUvs[0][i][1].clone();
+				var uv2 = geometry.faceVertexUvs[0][i][2].clone();
+				uvs.push( uv0 );
+				uvs.push( uv1 );
+				uvs.push( uv2 );
+			}
+
+			return uvs;
+
+		}
+
+        //-------------post process--------------------
+        var fxaa;
+        var hblur;
+        var vblur;
+        var blur = { bluriness:6 };
+        function initComposer(){
+
+            composer = new THREE.EffectComposer( renderer );
+            composer.addPass(new THREE.RenderPass(scene, camera));
+
+            //composer.addPass(new THREE.BloomPass(1.0, 25, 2., stageWidth));
+
+            fxaa = new THREE.ShaderPass( THREE.FXAAShader );
+            fxaa.uniforms[ 'resolution' ].value = new THREE.Vector2( 1 / stageWidth, 1 / stageHeight );
+            composer.addPass( fxaa );
+
+            hblur = new THREE.ShaderPass(THREE.HorizontalTiltShiftShader);
+            vblur = new THREE.ShaderPass(THREE.VerticalTiltShiftShader);
+            hblur.uniforms['h'].value = blur.bluriness / stageWidth;
+            vblur.uniforms['v'].value = blur.bluriness / stageHeight;
+            hblur.uniforms['r'].value = vblur.uniforms['r'].value = .6;
+            composer.addPass(hblur);
+            composer.addPass(vblur);
+
+            var copyPass = new THREE.ShaderPass(THREE.CopyShader);
+            copyPass.renderToScreen = true;
+            composer.addPass( copyPass );
+
+        }
+
+
+        function resize(){
+
+            stageWidth = window.innerWidth;
+            stageHeight = window.innerHeight;
+            var w = stageWidth;
+            var h = stageHeight;
+
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize( w, h );
+            
+        }
+
+
+		var rot = 0;
+		var start = Date.now();
+        function animate() {
+
+            //requestAnimationFrame(animate);
+
+            delta = clock.getDelta();
+
+            rot += .5;
+            var radian = rot * Math.PI / 180;
+            var x = Math.cos( radian ) * radius;
+            var z = Math.sin( radian ) * radius;
+            camera.position.x = x;
+            camera.position.z = z;
+            camera.lookAt( new THREE.Vector3() );
+
+
+            // if( iphoneVer < 6 ){
+            //     renderer.render(scene, camera);
+            // }else{
+                if( composer ) composer.render(.1);
+            //}
+
+			carMaterial.uniforms.time.value = .002 * ( Date.now() - start );
+            carMaterial.uniforms.cameraPos.value = camera.position.clone();
+			
+
+            for( var i = 0; i < waveLength; i++ ){
+    			wavePowers[ i ] -= .0001;
+    			if( wavePowers[ i ] < 0 ) wavePowers[ i ] = 0;
+            }
+		
+			//carMaterial.uniforms.wavePowers.value = wavePowers;
+		
+        }
+
+
+
+
+
+
+function screen2world() {
+
+    var _touch = new THREE.Vector3( MYAPP.touch.x, MYAPP.touch.y, .5 );
+    _touch.x = (_touch.x / stageWidth) * 2 - 1;
+    _touch.y = -(_touch.y / stageHeight) * 2 + 1;
+
+    //projector.unprojectVector(_touch, camera);
+    _touch.unproject( camera );
+
+    return _touch;
+}
+
+
+MYAPP.RaycastManager = (function () {
+
+    var scene;
+    var camera;
+
+    var intersected;
+    var baseColor = 0x333333;
+    var intersectColor = 0x00D66B;
+    var raycastTargets = [];
+
+    var cursorChangeTargets = [];
+    var cursorChangeTargetsLength = 0;
+
+
+
+    function RaycastManager( _scene, _camera ) {
+
+    	scene = _scene;
+    	camera = _camera;
+
+	    this.raycastType = 'normal';
+	    this.mouseMeshY = .1;
+	    this.mouseTopMeshY = 10;
+	    this.mouseMesh;
+	    this.mouseTopMesh;
+	    this.mouseOverTarget;
+	    this.downTarget;
+
+        var geometry = new THREE.PlaneGeometry(300, 300, 10, 10);
+        var material = new THREE.MeshBasicMaterial({ color: 0xd6f1ff, wireframe: true, visible: false });
+        this.mouseMesh = new THREE.Mesh(geometry, material);
+        this.mouseMesh.rotation.x = 270 * Math.PI / 180;
+        this.mouseMesh.name = 'mouseMesh';
+        scene.add(this.mouseMesh);
+        this.add(this.mouseMesh);
+
+        this.animate();
+    }
+
+
+    var p = RaycastManager.prototype;
+
+    p.raycast = function(raycaster) {
+
+        var intersections = raycaster.intersectObjects(raycastTargets, true);
+
+        return intersections;
+    };
+
+    p.add = function(object, mouseOverTargetFlag) {
+        if (typeof mouseOverTargetFlag === "undefined") { mouseOverTargetFlag = false; }
+        
+        raycastTargets.push(object);
+
+        if (mouseOverTargetFlag) {
+            cursorChangeTargets.push(object);
+            cursorChangeTargetsLength = cursorChangeTargets.length;
+        }
+    };
+
+    p.remove = function(object) {
+        var name = object.name;
+
+        var index = -1;
+        for (var i = 0; i < raycastTargets.length; i++) {
+            if (raycastTargets[i].name == name) index = i;
+        }
+        if (index != -1) raycastTargets.splice(index, 1);
+
+        index = -1;
+        for (i = 0; i < cursorChangeTargetsLength; i++) {
+            if (name == cursorChangeTargets[i].name) index = i;
+        }
+        if (index != -1) cursorChangeTargets.splice(index, 1);
+        cursorChangeTargetsLength = cursorChangeTargets.length;
+    };
+
+    p.hitCheck = function(raycaster, dist, type) {
+        if (typeof type === "undefined") { type = ''; }
+        var obj = {};
+        var hitFlag = false;
+        var _mouseOverFlag = false;
+        var mouseOutFlag = false;
+        var oldMouseOverTarget;
+        if (this.mouseOverTarget) oldMouseOverTarget = this.mouseOverTarget;
+
+        intersections = this.raycast(raycaster);
+    
+        var intersectionsLength = intersections.length;
+
+        if (intersectionsLength > 0) {
+
+            if (intersected != intersections[0].object) {
+                intersected = intersections[0].object;
+            }
+
+            var distance = intersections[0].distance;
+            if (distance > 0 && distance < dist) {
+                hitFlag = true;
+                obj.intersections = intersections;
+
+                if (type == 'mouse') {
+                    for (var i = 0; i < intersectionsLength; i++) {
+                        for (var j = 0; j < cursorChangeTargetsLength; j++) {
+                            if (intersections[i].object.name == cursorChangeTargets[j].name && intersections[i].object.visible) {
+                                if (!_mouseOverFlag) this.mouseOverTarget = intersections[i].object;
+                                _mouseOverFlag = true;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (intersected) {
+            intersected = null;
+        }
+
+        if (type == 'mouse') {
+            if (_mouseOverFlag) {
+                document.body.style.cursor = 'pointer';
+                if( this.mouseOverTarget.parent.mouseOver ) this.mouseOverTarget.parent.mouseOver();
+            } else {
+                this.mouseOverTarget = null;
+            }
+
+            if (this.mouseOverTarget != oldMouseOverTarget) {
+                document.body.style.cursor = 'auto';
+                if (oldMouseOverTarget && oldMouseOverTarget.parent.mouseOut) oldMouseOverTarget.parent.mouseOut();
+            }
+        }
+
+        obj.hitFlag = hitFlag;
+
+        return obj;
+    };
+
+
+    p.getFirstPointByName = function(intersections, name) {
+        var length = intersections.length;
+        var point;
+        for (var i = 0; i < length; i++) {
+            if (intersections[i].object.name == name && !point) {
+                point = new THREE.Vector3().copy(intersections[i].point);
+            }
+        }
+
+        return point;
+    };
+
+
+    p.getFirstObjectByName = function(intersections, name) {
+        var length = intersections.length;
+        var object;
+        for (var i = 0; i < length; i++) {
+            if (intersections[i].object.name == name && !object) {
+                object = intersections[i];
+            }
+        }
+
+        return object;
+    };
+
+
+    p.animate = function() {
+
+        requestAnimationFrame(function () {
+            return this.animate();
+        }.bind( this ));
+
+        if (camera) {
+            this.mouseMesh.position.copy( camera.position);
+            this.mouseMesh.position.y = this.mouseMeshY;
+		}
+
+    };
+
+    return RaycastManager;
+
+})();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+MYAPP.touch = {
+	x:0,
+	y:0,
+	oldX:0,
+	oldY:0,
+	dragDistX:0,
+	dragDistY:0,
+	offsetX:0, 
+	offsetY:0,
+	totalOffsetX:0,
+	totalOffsetY:0,
+	downFlag:false
+};
+
+
+MYAPP.TouchManager = (function(){
+
+	var touchStartFuncs = [];
+	var touchStartFuncLength = 0;
+	var touchMoveFuncs = [];
+	var touchMoveFuncLength = 0;
+	var touchEndFuncs = [];
+	var touchEndFuncLength = 0;
+	var touch;
+
+
+
+	function TouchManager(){
+	 
+		touch = MYAPP.touch;
+		this.ua = new MYAPP.UserAgent();
+
+		this.movePreventDefaultFlag = false;
+
+		if( this.ua.platform == 'pc' ){
+		    document.addEventListener('mousedown', this.touchStartHandler.bind( this ), false);
+		    document.addEventListener('mousemove', this.touchMoveHandler.bind( this ), false);
+		    document.addEventListener('mouseup', this.touchEndHandler.bind( this ), false);
+		}else{
+		    document.addEventListener('touchstart', this.touchStartHandler.bind( this ), false);
+		    document.addEventListener('touchmove', this.touchMoveHandler.bind( this ), false);
+		    document.addEventListener('touchend', this.touchEndHandler.bind( this ), false);
+		}
+	}
+
+
+	TouchManager.prototype = {
+
+		//------------------------タッチイベント------------------------
+		touchStartHandler : function(e){
+			
+			touch.downFlag = true;
+
+			if( this.ua.platform == 'pc' ){
+				touch.x = e.clientX;
+				touch.y = e.clientY;
+			}else{
+				if (e.touches.length) {
+					touch.x = e.touches[0].pageX;
+					touch.y = e.touches[0].pageY;
+				}
+			}
+
+			for( var i = 0; i < touchStartFuncLength; i++ ) touchStartFuncs[ i ]( e );
+		},
+
+
+		touchMoveHandler : function(e){
+
+			//if( nowPage == 'top' && touch.y > 680 ) return;
+			
+			touch.oldX = touch.x;
+			touch.oldY = touch.y;
+			if( this.ua.platform == 'pc' ){
+				touch.x = e.clientX;
+				touch.y = e.clientY;
+			}else{
+				if (e.touches.length) {
+					touch.x = e.touches[0].pageX;
+					touch.y = e.touches[0].pageY;
+				}
+			}
+
+			if( touch.downFlag ){
+				touch.offsetX = touch.x - touch.oldX;
+				touch.offsetY = touch.y - touch.oldY;
+				touch.totalOffsetX += touch.offsetX;
+				touch.totalOffsetY += touch.offsetY;
+		        touch.dragDistX = Math.abs(touch.offsetX);
+		        touch.dragDistY = Math.abs(touch.offsetY);
+		    }
+		    
+			for( var i = 0; i < touchMoveFuncLength; i++ ) touchMoveFuncs[ i ]( e );
+	     	
+			//AndroidでtouchEndを発火させる為の対策
+	        if( touch.dragDistY < touch.dragDistX &&
+	        	this.ua.platform != 'pc' ||
+	        	this.movePreventDefaultFlag ){
+	        	if( e.target.tagName != 'INPUT' &&
+	        		e.target.tagName != 'TEXTAREA' ) e.preventDefault();
+	    	}
+		},
+
+
+		touchEndHandler : function(e){
+			
+			touch.downFlag = false;
+			touch.offsetX = 0;
+			touch.offsetY = 0;
+			touch.totalOffsetX = 0;
+			touch.totalOffsetY = 0;
+	        touch.dragDistX = 0;
+	        touch.dragDistY = 0;
+
+			for( var i = 0; i < touchEndFuncLength; i++ ) touchEndFuncs[ i ]( e );
+		},
+
+
+		//------------------------グローバル関数------------------------
+		setTouchStartFunc : function( func ){
+
+			touchStartFuncs.push( func );
+			touchStartFuncLength = touchStartFuncs.length;
+
+		},
+
+		setTouchMoveFunc : function( func ){
+
+			touchMoveFuncs.push( func );
+			touchMoveFuncLength = touchMoveFuncs.length;
+
+		},
+
+		setTouchEndFunc : function( func ){
+
+			touchEndFuncs.push( func );
+			touchEndFuncLength = touchEndFuncs.length;
+
+		}
+
+	}
+
+	return TouchManager;
+
+})();
+
+
+
+
+
+
+
+MYAPP.UserAgent = (function(){
+
+	function UserAgent(){
+
+		this.isAndroid = (navigator.userAgent.search(/Android/)> 0)?true:false;
+		this.is_iOS = (navigator.userAgent.search(/iPhone/)> 0 || navigator.userAgent.search(/iPod/)> 0 || navigator.userAgent.search(/iPad/)> 0)?true:false;
+		this.is_oldiPhone = (this.is_iOS ===true && window.devicePixelRatio > 1 && window.screen.height !== 568)?true:false;
+	
+
+		var ua = navigator.userAgent.toLowerCase();
+		var ver = window.navigator.appVersion.toLowerCase();
+		var browser = '';
+		var ieVer = 9999;
+		if (ua.indexOf("msie") != -1){
+			browser = 'ie';
+	        if (ver.indexOf("msie 6.") != -1){
+	            ieVer = 6;
+	        }else if (ver.indexOf("msie 7.") != -1){
+	            ieVer = 7;
+	        }else if (ver.indexOf("msie 8.") != -1){
+	            ieVer = 8;
+	        }else if (ver.indexOf("msie 9.") != -1){
+	            ieVer = 9;
+	        }else if (ver.indexOf("msie 10.") != -1){
+	            ieVer = 10;
+	        }
+	    }else if(ua.indexOf('trident/7') != -1){
+	        browser = 'ie';
+	        ieVer = 11;
+	    }else if (ua.indexOf('chrome') != -1) {
+		    browser = 'chrome';
+		} else if (ua.indexOf('safari') != -1) {
+		    browser = 'safari';
+		} else if (ua.indexOf('firefox') != -1) {
+		    browser = 'firefox';
+		} else if (ua.indexOf('opera') != -1) {
+		    browser = 'opera';
+		}
+
+		ua = navigator.userAgent;
+		var twitterFlag = false;
+		if (ua.search(/Twitter/) != -1)
+		    twitterFlag = true;
+		var platform = 'pc';
+		if (ua.search(/iPhone/) != -1) {
+		    platform = "sp";
+		} else if ((ua.search(/Android/) != -1) && (ua.search(/Mobile/) != -1)) {
+		    platform = "sp";
+		} else if ((ua.search(/iPad/) != -1) || (ua.search(/Android/) != -1)) {
+		    platform = "ipad";
+		}
+
+		this.browser = browser;
+		this.ieVer = ieVer;
+		this.platform = platform;
+	
+	}
+
+	return UserAgent;
+
+})();
+    </script>
+
+        <div id="cover">
+            <p id="loading">loading...</p>
+        </div>
+	</body>
+</html>

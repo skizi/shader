@@ -1,0 +1,266 @@
+﻿<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Shader TEST</title>
+
+    <style>
+    html,body{
+        margin:0;
+    }
+
+    </style>
+
+
+    <script src="../../js/three.min.js"></script>
+    <script src="../../js/postprocessing/EffectComposer.js"></script>
+    <script src="../../js/postprocessing/RenderPass.js"></script>
+    <script src="../../js/postprocessing/ShaderPass.js"></script>
+    <script src="../../js/postprocessing/MaskPass.js"></script>
+    <script src="../../js/shaders/CopyShader.js"></script>
+    <script src="../../js/loaders/SceneLoader.js"></script>
+
+    <script type="x-shader/x-vertex" id="vshader">
+    uniform bool edge;
+    varying vec3 vNormal;
+    varying vec2 vUv;
+    uniform float imgWidth;
+    uniform float imgHeight;
+    varying float diffuse;
+    varying vec2 pos;
+
+    
+    void main(void) {
+
+        vNormal = normal;
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+        pos = vec2( uv.x * imgWidth, uv.y * imgHeight );
+        vUv = uv;
+
+    }
+    </script>
+ 
+    <script type="x-shader/x-fragment" id="fshader">
+    uniform sampler2D tDiffuse;
+    uniform float time;
+    uniform float mosicSize;
+    uniform float imgWidth;
+    uniform float imgHeight;
+
+    varying vec3 vNormal;
+    varying vec2 vUv;
+    varying float diffuse;
+    varying vec2 pos;
+
+    
+    void main(void) {
+
+        float maxV = 255.0;
+        float nLevel = 4.0;
+        float zStep = maxV / ( nLevel - 1.0 );
+
+        float x = floor( pos.x / mosicSize );
+        float y = floor( pos.y / mosicSize );
+
+        vec2 uv = vec2( x * mosicSize / imgWidth, y * mosicSize / imgHeight );
+        vec4 tex = texture2D( tDiffuse, uv ) * maxV;
+        vec3 k = floor( tex.rgb / zStep + vec3( .5 ) );
+        tex.rgb = zStep * k;
+        gl_FragColor.rgb = tex.rgb / maxV;
+        
+    }
+    </script>
+</head>
+<body>
+
+    <script>
+
+
+        var scene;
+        var renderer;
+        var camera;
+
+
+
+        scene = new THREE.Scene();
+
+        renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMapEnabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        var fov = 100;
+        var aspect = window.innerWidth / window.innerHeight;
+        camera = new THREE.PerspectiveCamera(fov, aspect, .1, 200);
+        camera.position.x = 0;
+        camera.position.y = 13;
+        camera.position.z = -15;
+        camera.lookAt( new THREE.Vector3( 0, 8, 0 ) );
+
+        
+        var light = new THREE.DirectionalLight(0xffffff, .5);
+        light.position.set( 0, 15, 0);
+        light.castShadow = true;
+        scene.add(light);
+
+
+        var texture = THREE.ImageUtils.loadTexture('assets/zako.png');
+        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+        var material = new THREE.MeshBasicMaterial({map:texture});
+        material.morphTargets = true;
+        
+
+
+
+
+        var mesh;
+        var meshs = [];
+        var meshLength = 0;
+        var jsonLoader = new THREE.JSONLoader();
+        jsonLoader.load( "assets/zako.js", jsonLoadCompHandler );
+        function jsonLoadCompHandler( geometry, materials ) {
+        
+            geometry.computeMorphNormals();
+
+            var hasAnimation = false;
+            if (geometry.morphTargets.length) hasAnimation = true;
+
+            for( var i = 0; i < 4; i++ ){
+                for( var j = 0; j < 4; j++ ){
+                    mesh = getAnimationMesh( geometry, materials );
+                    mesh.material.materials[0] = material;
+                    mesh.material.needsUpdate = true;
+                    mesh.position.x = i * 20 - 40;
+                    mesh.position.z = j * 20 - 40;
+                    mesh.scale.multiplyScalar(20);
+                    mesh.rotation.y = 180 * Math.PI / 180;
+                    mesh.updateMatrix();
+                    mesh.setAnimationLabel( 'walk', 0, 26 );
+                    mesh.playAnimation( 'walk', 20 );
+                    meshs.push( mesh );
+                    scene.add( mesh );
+                }
+            }
+
+            meshLength = meshs.length;
+
+        }
+        function getAnimationMesh( geometry, materials ) {
+
+            for (var i = 0; i < materials.length; i++) materials[i].morphTargets = true;
+
+
+            var material = new THREE.MeshFaceMaterial(materials);
+            var mesh = new THREE.MorphAnimMesh(geometry, material);
+
+            mesh.duration = 1000;
+            mesh.time = 1000 * Math.random();
+
+            mesh.matrixAutoUpdate = false;
+            mesh.updateMatrix();
+            mesh.parseAnimations();
+
+            mesh.rotation.y = 45 * Math.PI / 180;
+
+            return mesh;
+
+        }
+
+
+
+
+
+
+
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+        var renderTarget = new THREE.WebGLRenderTarget( w, h );
+        // renderComposer = new THREE.EffectComposer( renderer, renderTarget );
+
+
+        var layer1Composer = new THREE.EffectComposer( renderer );
+
+        var renderPass = new THREE.RenderPass( scene, camera );
+        layer1Composer.addPass( renderPass );
+
+        var shader = {
+            uniforms: {
+                tDiffuse: {
+                    type: "t",
+                    value: null
+                },
+                time:{
+                    type:'f',
+                    value:0.0
+                },
+                imgWidth:{
+                    type:'f',
+                    value:w
+                },
+                imgHeight:{
+                    type:'f',
+                    value:h
+                },
+                mosicSize:{
+                    type:'f',
+                    value:16.0
+                }
+            },
+            vertexShader: document.getElementById('vshader').textContent,
+            fragmentShader: document.getElementById('fshader').textContent
+        };
+        
+        var shaderPass = new THREE.ShaderPass(shader);
+        shaderPass.needsSwap = true;
+        layer1Composer.addPass(shaderPass);
+
+        var toScreen = new THREE.ShaderPass(THREE.CopyShader);
+        toScreen.renderToScreen = true;
+        layer1Composer.addPass(toScreen);
+
+
+
+
+
+        var rot = 0;
+        var radius = 15;
+
+        var clock = new THREE.Clock();
+        var start = Date.now();
+        animate();
+        function animate() {
+
+            requestAnimationFrame(animate);
+
+            var delta = clock.getDelta();
+            if( meshLength ){
+                for( var i = 0; i < meshLength; i++ ){
+                    meshs[ i ].updateAnimation(1000 * delta);
+                }
+            }
+            //renderer.render(scene, camera);
+            layer1Composer.render(0.1);
+
+            //light.position.x += .1;
+
+
+            rot++;
+            var radian = rot * Math.PI / 180;
+            var x = Math.cos( radian ) * radius;
+            var z = Math.sin( radian ) * radius;
+            camera.position.x = x;
+            camera.position.z = z;
+            camera.lookAt( new THREE.Vector3( 0, 8, 0 ) );
+
+        }
+
+
+    </script>
+
+
+
+</body>
+</html>
