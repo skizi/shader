@@ -1,4 +1,9 @@
-var ThreePaint = (function(){
+
+var MYAPP = MYAPP||{};
+
+MYAPP.ThreePaint = (function(){
+
+    var self;
 
 	var mouse = {
 		x:0,
@@ -42,8 +47,15 @@ var ThreePaint = (function(){
 
     var composer;
     var composerRenderTarget;
+
+
+    var addImgFlg = false;
+
+
 	
-	function Main( _canvasSize, _renderer, _scene, _camera ){
+	function ThreePaint( _canvasSize, _renderer, _scene, _camera ){
+
+        self = this;
 
         clock = new THREE.Clock();
 
@@ -51,6 +63,7 @@ var ThreePaint = (function(){
 		renderer = _renderer;
         parentScene = _scene;
 		parentCamera = _camera;
+
         scene = new THREE.Scene();
         captureCamera = new THREE.OrthographicCamera( canvasSize / - 2, canvasSize / 2, canvasSize / 2, canvasSize / - 2, 1, 2000 );
         initCanvas();
@@ -59,8 +72,11 @@ var ThreePaint = (function(){
         initMesh();
         initComposer();
 
-        this.masterRenderTarget = masterRenderTarget;
         this.paintingMap = paintingMap;
+
+        masterRenderTarget = meshCapture( masteringMesh, scene, masterRenderTarget, canvasSize );
+        this.masterRenderTarget = masterRenderTarget;
+
 	}
 
 
@@ -365,10 +381,10 @@ var ThreePaint = (function(){
             var y = ( mouse.y - drawRect.minY ) / drawRect.h * canvasSize;
 
             drawCircle( x, y, circleRadius, nowColor, context );
-        //console.log(nowColor);
+
             var paintCacheMap = new THREE.Texture( canvas );
             paintCacheMap.needsUpdate = true;
-            sphereMesh.material.uniforms.texture2.value = paintCacheMap;
+            self.sphereMesh.material.uniforms.texture2.value = paintCacheMap;
         }
     }
 
@@ -379,25 +395,22 @@ var ThreePaint = (function(){
     //A
     //ペイント開始した瞬間に実行
     function startPaint(){
-console.log("startpaint");
 
         clearCanvas( context, 0 );
         clearCanvas( debugContext, 0 );
 
-        //console.log( clock.getElapsedTime() );
-        cacheMesh.geometry = createFrontGeometory( sphereMesh );
-        cacheMesh.position.copy( sphereMesh.position );
+        cacheMesh.geometry = createFrontGeometory( self.sphereMesh );
+        cacheMesh.position.copy( self.sphereMesh.position );
 
 
         var newUvs = createDrawUv( cacheMesh );
-        //console.log( clock.getElapsedTime() );
         cacheMesh.geometry.faceVertexUvs[0] = newUvs;
         cacheMesh.geometry.uvsNeedUpdate = true;
 
         
         //original uv capture
         
-        //sphereMesh.material.uniforms.showUV.value = 1;        
+        //self.sphereMesh.material.uniforms.showUV.value = 1;        
         cacheMesh.material.uniforms.showVColor.value = 1;
 
         var canvasScale = 3;
@@ -421,9 +434,9 @@ console.log("startpaint");
 
         
         //shaderで現在の描画中のcanvasをプロジェクションマッピング
-        sphereMesh.material.uniforms.texture2.value = new THREE.Texture( canvas );
-        sphereMesh.material.uniforms.drawColor.value = new THREE.Vector3( nowColor[0]/255, nowColor[1]/255, nowColor[2]/255 );
-        sphereMesh.material.uniforms.showOnTimeDraw.value = 1;
+        self.sphereMesh.material.uniforms.texture2.value = new THREE.Texture( canvas );
+        self.sphereMesh.material.uniforms.drawColor.value = new THREE.Vector3( MYAPP.nowColor[0]/255, MYAPP.nowColor[1]/255, MYAPP.nowColor[2]/255 );
+        self.sphereMesh.material.uniforms.showOnTimeDraw.value = 1;
 
     }
 
@@ -440,7 +453,6 @@ console.log("startpaint");
     //B
     //ペイント後カメラを移動させた瞬間に実行
     function saveTexture(){
-console.log("saveTexture");
 
         //drawCacheRenderTargetに新規にペイントした内容をレンダリング
         var paintCacheMap = new THREE.Texture( canvas );
@@ -448,27 +460,27 @@ console.log("saveTexture");
         paintCacheMap.flipY = false;
         paintCacheMap.needsUpdate = true;
         cacheMesh.material.uniforms.texture1.value = paintCacheMap;
-        cacheMesh = createUvCoordinatesPlane( sphereMesh, cacheMesh, canvasSize );
+        cacheMesh = createUvCoordinatesPlane( self.sphereMesh, cacheMesh, canvasSize );
         drawCacheRenderTarget = meshCapture( cacheMesh, scene, drawCacheRenderTarget, canvasSize );
         //cacheMesh.geometry.uvsNeedUpdate = true;
 
-//vColor capture
-cacheMesh.material.uniforms.flipY.value = 1;
-cacheMesh.material.uniforms.texture1.value = uvRenderTarget;
-uvRenderTarget2 = meshCapture( cacheMesh, scene, uvRenderTarget2, canvasSize );
-debugCanvas.width = canvasSize;
-debugCanvas.height = canvasSize;       
-cacheMesh.material.uniforms.flipY.value = 0;
-cacheMesh.material.uniforms.texture1.value = paintingMap;
- 
+        //vColor capture
+        cacheMesh.material.uniforms.flipY.value = 1;
+        cacheMesh.material.uniforms.texture1.value = uvRenderTarget;
+        uvRenderTarget2 = meshCapture( cacheMesh, scene, uvRenderTarget2, canvasSize );
+        debugCanvas.width = canvasSize;
+        debugCanvas.height = canvasSize;       
+        cacheMesh.material.uniforms.flipY.value = 0;
+        cacheMesh.material.uniforms.texture1.value = paintingMap;
+         
 
-     
-//vColor capture2
-cacheMesh.material.uniforms.showVColor.value = 1;
-uvRenderTarget3 = meshCapture( cacheMesh, scene, uvRenderTarget3, canvasSize );
-debugCanvas.width = canvasSize;
-debugCanvas.height = canvasSize;      
-cacheMesh.material.uniforms.showVColor.value = 0;
+             
+        //vColor capture2
+        cacheMesh.material.uniforms.showVColor.value = 1;
+        uvRenderTarget3 = meshCapture( cacheMesh, scene, uvRenderTarget3, canvasSize );
+        debugCanvas.width = canvasSize;
+        debugCanvas.height = canvasSize;      
+        cacheMesh.material.uniforms.showVColor.value = 0;
  
 
         alphaMesh.material.uniforms.sameCheck.value = 1;
@@ -534,7 +546,7 @@ for( var i = 0; i < length; i+=4 ){
         mixMesh.material.uniforms.alphaTexture.value = composer.renderTarget2;
         mixMesh.material.uniforms.texture1.value = drawCacheRenderTarget;
         mixMesh.material.uniforms.texture2.value = masterRenderTarget; 
-        mixMesh.material.uniforms.drawColor.value = new THREE.Vector3( nowColor[0]/255, nowColor[1]/255, nowColor[2]/255 );
+        mixMesh.material.uniforms.drawColor.value = new THREE.Vector3( MYAPP.nowColor[0]/255, MYAPP.nowColor[1]/255, MYAPP.nowColor[2]/255 );
 
         //合成した状態でtexRenderTargetにレンダリング
         texRenderTarget = meshCapture( mixMesh, scene, texRenderTarget, canvasSize );
@@ -542,7 +554,7 @@ for( var i = 0; i < length; i+=4 ){
 
         masterRenderTarget = meshCapture( masteringMesh, scene, masterRenderTarget, canvasSize );
 
-        sphereMesh.material.uniforms.texture1.value = texRenderTarget;
+        self.sphereMesh.material.uniforms.texture1.value = texRenderTarget;
 
 
 // setTimeout(function(){
@@ -557,10 +569,9 @@ for( var i = 0; i < length; i+=4 ){
             //renderTarget2canvas( context, masterRenderTarget, canvasSize, canvasSize );
         //}
 
-        sphereMesh.material.uniforms.showOnTimeDraw.value = 0;
+        self.sphereMesh.material.uniforms.showOnTimeDraw.value = 0;
 
     }
-    var addImgFlg = false;
 
 
 
@@ -671,6 +682,16 @@ for( var i = 0; i < length; i+=4 ){
 
        return data;
 
+    }
+
+
+    function vecWorld2screen(pos) {
+
+        pos.project( parentCamera );
+        pos.x = (pos.x + 1) * .5 * MYAPP.stageWidth;
+        pos.y = MYAPP.stageHeight -(pos.y + 1) * .5 * MYAPP.stageHeight;
+
+        return pos;
     }
 
 
@@ -806,7 +827,9 @@ for( var i = 0; i < length; i+=4 ){
     //var brushHardness = 10;
     var arcPI = Math.PI*2;
     function drawCircle(x, y, r, c, ctx) {
-c[3] = .4;
+        
+        c[3] = .4;
+        
         ctx.save();
         ctx.beginPath();
         ctx.fillStyle = 'rgba('+c+')';
@@ -882,7 +905,7 @@ c[3] = .4;
     }
 
 
-	Main.prototype = {
+	ThreePaint.prototype = {
 
 		draw : function( touch, nowColor, circleRadius ){
 
@@ -913,6 +936,6 @@ c[3] = .4;
 
 	};
 
-	return Main;
+	return ThreePaint;
 
 })();

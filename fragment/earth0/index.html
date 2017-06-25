@@ -6,11 +6,22 @@
     <title>Shader TEST</title>
 
     <style>
-    html,body{
-        margin:0;
-        overflow: hidden;
-    }
+        html,body{
+            margin:0;
+            overflow: hidden;
+        }
 
+        p#loading{
+            width:100%;
+            margin-top:-20px;
+            text-align: center;
+            position:absolute;
+            top:50%;
+            left:0px;
+            color:#fff;
+            font-size:40px;
+            font-style: italic;
+        }
     </style>
     
 
@@ -444,41 +455,53 @@
 </head>
 <body>
 
-    <script>
+<p id="loading">loading...</p>
+<script>
+
+    var MYAPP = MYAPP||{};
+    $( window ).load(function(){
+
+        new MYAPP.Main();
+
+    });
+
+
+    MYAPP.Main = (function(){
+
+        var toRad = Math.PI / 180;
+        var toRot = 180 / Math.PI;
 
         var stageW = window.innerWidth;
         var stageH = window.innerHeight;
+
+        var downFlag = false;
 
         var scene;
         var renderer;
         var camera;
         var cameraFov = 50;
+        var rot = 0;
+        var cameraRotTarget = 90;
+        var rotY = 0;
+        var cameraRadius = 12;
+        var cameraTargetY = 5;
+        var start = Date.now();
+        var oldTime = 0;
+
         var light;
 
         var cubeTexture;
-        var texture;
-        var normalTexture;
-
-        var lightMaterial;
-        var leafMaterial;
-
         var textureLoadCount = 0;
-
-        var animations = {};
-
-        var groundMesh;
-        var tree0Mesh;
-        var leaf0Mesh;
-        var tree1Mesh;
-        var leaf1Mesh;
-
         var textuers = {};
 
         var composer;
         var blurComposer;
         var copyComposer;
+        var hblur;
+        var vblur;
+        var blur = { bluriness:8 };
+        var compositShaderPass;
 
-        var particleMesh;
         var renderTargetParameters = {
             minFilter: THREE.NearestFilter,//縮めた時にじまないように //THREE.LinearFilter,
             magFilter: THREE.NearestFilter,//広げたときにじまない様に //THREE.LinearFilter,
@@ -504,8 +527,6 @@
                 { lat:35.267815, log:138.389648, radius:3 }
             ]
         ];
-        var targetSpheres = [];
-        var targetSphereLength = 0;
 
         var starTexture;
         var starMesh;
@@ -513,18 +534,17 @@
 
 
 
-        var MYAPP = {};
 
-        $( window ).load(function(){
+        function Main(){
 
             MYAPP.ua = new YSD.UserAgent();
             var touchManager = new YSD.TouchManager();
             MYAPP.touch = YSD.touch;
+            
             touchManager.setTouchStartFunc( function(){
                 downFlag = true;
             } );
-            // touchManager.setTouchMoveFunc( function(){
-            // } );
+
             touchManager.setTouchEndFunc(  function(){
                 downFlag = false;
             }  );
@@ -535,8 +555,8 @@
             setInterval( cameraPositionInterval, 1500 );
 
             $( window ).resize( resize );
-        });
-
+        
+        }
 
 
         function initScene(){
@@ -573,7 +593,6 @@
         }
 
 
-
         function initTexture(){
 
             var cubeImgs = [
@@ -585,11 +604,6 @@
                     'assets/images/cube/space_negZ.jpg',
                 ];
             cubeTexture = THREE.ImageUtils.loadTextureCube( cubeImgs, THREE.UVMapping, textureLoadCheck );
-
-            texture = THREE.ImageUtils.loadTexture('assets/images/water.jpg', THREE.UVMapping, textureLoadCheck );
-            texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-            normalTexture = THREE.ImageUtils.loadTexture('assets/images/water_normal.jpg', THREE.UVMapping, textureLoadCheck );
-            normalTexture.wrapS = normalTexture.wrapT = THREE.RepeatWrapping;
 
             textuers[ 'tree0' ] = THREE.ImageUtils.loadTexture('assets/images/tree0.jpg', THREE.UVMapping, textureLoadCheck);
             textuers[ 'tree1' ] = THREE.ImageUtils.loadTexture('assets/images/tree1.jpg', THREE.UVMapping, textureLoadCheck);
@@ -608,12 +622,14 @@
         function textureLoadCheck(){
 
             textureLoadCount++;
-            if( textureLoadCount == 10 ){
+            if( textureLoadCount == 8 ){
 
                 initMaterial();
                 initObject();
                 initComposer();
                 setInterval( animate, 1000 / 30 );
+
+                $( '#loading' ).hide();
 
             }
 
@@ -622,30 +638,16 @@
 
         function initMaterial(){
 
-            leafMaterial = new THREE.ShaderMaterial({
-                fragmentShader: $( '#leafFShader' ).text(),
-                vertexShader: $( '#leafVShader' ).text(),
-                uniforms:{
-                    textuer:{
-                        type:'t',
-                        value:textuers[ 'leaf' ]
-                    }
-                },
-                transparent:true,
-                side:THREE.DoubleSide,
-                vertexColors:THREE.VertexColors
-            });
+            // earthMaterial = new THREE.MeshBasicMaterial( {
+            //     specular: 0x333333,
+            //     shininess: 15,
+            //     map: earthDiffuseTexture,
+            //     specularMap: earthSpecularTexture,
+            //     normalMap: earthNormalTexture,
+            //     normalScale: new THREE.Vector2( 0.85, 0.85 )
+            // } );
 
 
-            earthMaterial = new THREE.MeshBasicMaterial( {
-                specular: 0x333333,
-                shininess: 15,
-                map: earthDiffuseTexture,
-                specularMap: earthSpecularTexture,
-                normalMap: earthNormalTexture,
-                //wireframe:true,
-                normalScale: new THREE.Vector2( 0.85, 0.85 )
-            } );
             earthMaterial = new THREE.ShaderMaterial({
                 vertexShader: $('#earth-vshader').text(),
                 fragmentShader: $('#earth-fshader').text(),
@@ -666,13 +668,8 @@
                         type: 'v3',
                         value: camera.position.clone()
                     },
-                },
-                //blending: THREE.NoBlending,
-                //alphaTest:.5,
-                //transparent: true
+                }
             });
-            //earthMaterial = new THREE.MeshBasicMaterial({ wireframe:true });
-
 
             blackMaterial = new THREE.MeshBasicMaterial({ color:0x000000 });
 
@@ -704,13 +701,6 @@
             scene.add( earthMesh );
 
 
-
-
-            var url = 'assets/models/assets0.js';
-            var loader = new THREE.SceneLoader();
-            loader.load(url, bgLoadComp );
-
-
             //particle
             var geometry = new THREE.BoxGeometry( 10, 10, 10, 5, 5 );
             var obj = getSourceIndexsAndVertices( geometry.vertices.length, geometry );
@@ -721,8 +711,6 @@
                 var data = lineDatas[i];
                 var a = latLog2Vec( data[0].lat, data[0].log, data[0].radius );
                 var b = latLog2Vec( data[1].lat, data[1].log, data[1].radius );
-                targetSpheres.push( a );
-                targetSpheres.push( b );
                 addSphere(a);
                 addSphere(b);
                 var archObj = getLineArch( a, b, 20, data[0].color );
@@ -762,10 +750,8 @@
             });
             starMesh = new THREE.PointCloud( geometry, starMaterial );
             scene.add( starMesh );
+
         }
-
-
-
 
 
         function getSourceIndexsAndVertices( _length, geometry ){
@@ -850,78 +836,6 @@
             });
             
             return material;
-        }
-
-
-        function setCamera2DPosition( w, h ){
-
-            camera.position.x = 0;
-            camera.position.y = 0;
-            var cameraRadius = ( h / 2 ) / Math.tan(( cameraFov * Math.PI / 180) / 2);
-            camera.position.z = cameraRadius;
-
-            camera.lookAt( new THREE.Vector3(0,0,0) );
-
-        }
-
-
-        function bgLoadComp( result ){
-
-            var shadowMaterial = new THREE.ShaderMaterial({
-                vertexShader: $( '#leafVShader' ).text(),
-                fragmentShader: $( '#shadow-fshader' ).text(),
-                uniforms: leafMaterial.uniforms,
-                alphaTest:.1
-            });
-
-
-            var s = new THREE.Vector3(.3, .3, .3);
-            var p = new THREE.Vector3( -1.5, 0, -2 );
-            tree0Mesh = getMesh( 'tree0', result, s, p );
-            tree0Mesh.castShadow = true;
-            //scene.add( tree0Mesh );
-
-            s = new THREE.Vector3(.4, .4, .4);
-            p = new THREE.Vector3( -1.5, .5, -2 );
-            leaf0Mesh = getMesh( 'leaf0', result, s, p );
-            leaf0Mesh.material = leafMaterial;
-            leaf0Mesh.customDepthMaterial = shadowMaterial
-            leaf0Mesh.castShadow = true;
-            //scene.add( leaf0Mesh );
-
-
-
-            var s = new THREE.Vector3(.6*1.3, .6*1.3, .6*1.3);
-            var p = new THREE.Vector3( -1.5, 0, 2 );
-            tree1Mesh = getMesh( 'tree3', result, s, p );
-            tree1Mesh.castShadow = true;
-            //scene.add( tree1Mesh );
-
-            s = new THREE.Vector3(.25*1.3, .25*1.3, .25*1.3);
-            p = new THREE.Vector3( -1.1, -.3, 2 );
-            leaf1Mesh = getMesh( 'leaf3', result, s, p );
-            leaf1Mesh.material = leafMaterial;
-            leaf1Mesh.customDepthMaterial = shadowMaterial
-            leaf1Mesh.castShadow = true;
-            //scene.add( leaf1Mesh );
-
-        }
-
-
-        function getMesh( key, result, s, p ){
-
-            var mesh = result.objects[ key ];
-            mesh.material = new THREE.MeshBasicMaterial({ alphaTest:.1, side:THREE.DoubleSide });
-            mesh.material.needsUpdate = true;
-            if( key == 'leaf0' ) key = 'leaf';
-            if( key == 'tree3' ) key = 'tree1';
-            textuer = textuers[ key ];
-            mesh.material.map = textuer;
-            mesh.position.copy( p );
-            mesh.scale.copy( s );
-            mesh.updateMatrix();
-
-            return mesh;
 
         }
 
@@ -934,13 +848,12 @@
             var y = radius * Math.sin( lat );
             var z = radius * Math.cos( lat ) * Math.sin( log );
             var vec = new THREE.Vector3( x, y, z );
+
             return vec;
 
         }
 
 
-        var toRad = Math.PI / 180;
-        var toRot = 180 / Math.PI;
         function getLineArch( a, b, splitCount, color ){
 
             var vertices = [];
@@ -998,11 +911,13 @@
 
 
         function getCenterVec( a, b ){
+
             return new THREE.Vector3(
                 (a.x+b.x)/2,
                 (a.y+b.y)/2,
                 (a.z+b.z)/2
             );
+        
         }
 
 
@@ -1021,6 +936,7 @@
             m.set(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
                 oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s,  0.0,
                 oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c, 0.0, 0.0, 0.0, 0.0, 1.0);
+
             return m;
 
         }
@@ -1046,18 +962,13 @@
         }
 
 
-        var hblur;
-        var vblur;
-        var blur = { bluriness:8 };
-        var compositShaderPass;
         function initComposer(){
 
             copyComposer = new THREE.EffectComposer( renderer );
 
-
             blurRT = new THREE.WebGLRenderTarget( stageW, stageH, renderTargetParameters);
             blurComposer = new THREE.EffectComposer( renderer, blurRT );
-            blurComposer.addPass(new THREE.RenderPass(scene, camera));
+            blurComposer.addPass( new THREE.RenderPass( scene, camera ) );
 
             hblur = new THREE.ShaderPass(THREE.HorizontalTiltShiftShader);
             vblur = new THREE.ShaderPass(THREE.VerticalTiltShiftShader);
@@ -1066,7 +977,6 @@
             //hblur.uniforms['r'].value = vblur.uniforms['r'].value = .6;
             blurComposer.addPass(hblur);
             blurComposer.addPass(vblur);
-
 
 
             composer = new THREE.EffectComposer( renderer );
@@ -1090,8 +1000,8 @@
                         value:0
                     }
                 },
-                vertexShader: $('#composit-vshader').text(),
-                fragmentShader: $('#composit-fshader').text()
+                vertexShader: $( '#composit-vshader' ).text(),
+                fragmentShader: $( '#composit-fshader' ).text()
             };
             compositShaderPass = new THREE.ShaderPass(shader);
             compositShaderPass.needsSwap = true;
@@ -1108,7 +1018,6 @@
             toScreenPass = new THREE.ShaderPass(THREE.CopyShader);
             toScreenPass.renderToScreen = true;
             composer.addPass( toScreenPass );
-
 
 
             copyComposer.addPass(new THREE.RenderPass(scene, camera));
@@ -1138,14 +1047,6 @@
 
         function setCameraPosition( _rot ){
 
-            // var radian = _rot * toRad;
-            // var x = Math.cos( radian ) * cameraRadius;
-            // var z = Math.sin( radian ) * cameraRadius;
-
-            // camera.position.x = x;
-            // camera.position.z = z;
-            // camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
-
             rot += .6;
             if( rot >= 360 ) rot = 0;
             var radian = rot * Math.PI / 180;
@@ -1155,9 +1056,6 @@
             var z = Math.sin( radian ) * cameraRadius;
             camera.position.x = x;
             camera.position.z = z;
-            // camera.position.x = 0;
-            // camera.position.y = 0;
-            // camera.position.z = 10;
             camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
 
         }
@@ -1168,11 +1066,11 @@
             var cameraY = camera.position.y;
 
             skyBox.visible = false;
+            
             //starMesh.visible = false;
             // for( var i = 0; i < particleMeshLength; i++ ){
             //     particleMeshs[i].visible = false;
             // }
-
 
             earthMesh.material = blackMaterial;
             blurComposer.render( .1 );
@@ -1181,20 +1079,14 @@
             earthMesh.material = earthMaterial;
             skyBox.visible = true;
             starMesh.visible = true;
+
             // for( var i = 0; i < particleMeshLength; i++ ){
             //     particleMeshs[i].visible = true;
             // }
+        
         }
 
 
-        var rot = 0;
-        var cameraRotTarget = 90;
-        var downFlag = false;
-        var rotY = 0;
-        var cameraRadius = 12;
-        var start = Date.now();
-        var cameraTargetY = 5;
-        var oldTime = 0;
         function animate() {
 
             var time = ( Date.now() - start );
@@ -1241,8 +1133,11 @@
 
         }
 
+        return Main;
 
-    </script>
+    })();
+
+</script>
 
 
 

@@ -5,18 +5,18 @@
         <title>textuer</title>
         <!--<script src="http://wgld.org/j/minMatrixb.js" type="text/javascript"></script>-->
     <meta name="viewport" content="width=640">
-    <script src="../js/three.min.js"></script>
-    <script src="../js/jquery.js"></script>
-    <script src="../js/skizi.js"></script>
-    <script src="../js/loaders/OBJLoader.js"></script>
-    <script src="../js/ShaderParticles.min.js"></script>
-    <script src="../js/postprocessing/ShaderPass.js"></script>
-    <script src="../js/postprocessing/RenderPass.js"></script>
-    <script src="../js/postprocessing/MaskPass.js"></script>
-    <script src="../js/shaders/CopyShader.js"></script>
-    <script src="../js/shaders/HorizontalBlurShader.js"></script>
-    <script src="../js/shaders/VerticalBlurShader.js"></script>
-    <script src="../js/postprocessing/EffectComposer.js"></script>
+    <script src="../../js/three.min.js"></script>
+    <script src="jquery.js"></script>
+    <script src="skizi.js"></script>
+    <script src="../../js/loaders/OBJLoader.js"></script>
+    <script src="../../js/ShaderParticles.min.js"></script>
+    <script src="../../js/postprocessing/ShaderPass.js"></script>
+    <script src="../../js/postprocessing/RenderPass.js"></script>
+    <script src="../../js/postprocessing/MaskPass.js"></script>
+    <script src="../../js/shaders/CopyShader.js"></script>
+    <script src="../../js/shaders/HorizontalBlurShader.js"></script>
+    <script src="../../js/shaders/VerticalBlurShader.js"></script>
+    <script src="../../js/postprocessing/EffectComposer.js"></script>
     <script src="three_paint.js"></script>
         
     <script type="x-shader/x-vertex" id="main-vshader">
@@ -356,6 +356,7 @@
             }
 
             body, html{
+                margin:0;
                 overflow: hidden;
                 background-color: #000;
             }
@@ -443,31 +444,36 @@
 
     <script>
 
-        /****************************************************************/
-        //継承
-        /****************************************************************/
-        var __extends = this.__extends || function (d, b) {
-            for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
-            function __() { this.constructor = d; }
-            __.prototype = b.prototype;
-            d.prototype = new __();
-        };
+    /****************************************************************/
+    //継承
+    /****************************************************************/
+    var __extends = this.__extends || function (d, b) {
+        for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
+        function __() { this.constructor = d; }
+        __.prototype = b.prototype;
+        d.prototype = new __();
+    };
 
 
 
+    var MYAPP = MYAPP||{};
 
-        MYAPP = {
-            fps:30,
-            stageWidth:0,
-            stageHeight:0,
-            mousePosition:new THREE.Vector3(),
-            elapsedTime:0,
-            deltaTime:0
-        };
-        MYAPP.ua = new SKIZI.UserAgent();
-        MYAPP.touchManager = new SKIZI.TouchManager();
-        MYAPP.touchManager.movePreventDefaultNoneFlag = true;
-        MYAPP.touch = SKIZI.touch;
+
+    $( window ).load(function(){
+
+        MYAPP.fps = 30;
+        MYAPP.stageWidth = 0;
+        MYAPP.stageHeight = 0;
+        MYAPP.mousePosition = new THREE.Vector3();
+        MYAPP.elapsedTime = 0;
+        MYAPP.deltaTime = 0;
+
+        new MYAPP.Main();
+
+    });
+
+
+    MYAPP.Main = (function(){
 
         var clock;
 
@@ -506,13 +512,40 @@
         var SUPPORT_TRANSFERABLE = false;
         var sendMessages;
 
+        //three
+        var scene;
+        var renderer;
+        var light;
+        var camera;
+        var sphereMesh;
+        var groundMesh;
+        var dummyMesh;
+
+        var bullets = [];
+        var nowBullet = 0;
+        var bulletLength = 6;
+        var bulletImage;
+        var bulletCanvas;
+        var bulletContext;
+        var bulletParticle;
+        var bulletParticleDirection;
+
+        var cameraRadius = 200;
+        var cameraRot = 90;
+        var targetCameraRot = 90;
+        var toRad = Math.PI / 180;
 
 
+        var canvasSize = 512;
+        var threePaint;
 
-        $( window ).load( init );
-        function init(){
 
-            $( document.body ).css({ margin:0 });
+        function Main(){
+
+            MYAPP.ua = new SKIZI.UserAgent();
+            MYAPP.touchManager = new SKIZI.TouchManager();
+            MYAPP.touchManager.movePreventDefaultNoneFlag = true;
+            MYAPP.touch = SKIZI.touch;
 
             var stage = SKIZI.utils.getStageProperty();
             MYAPP.stageWidth = stage.clientW;
@@ -520,6 +553,8 @@
 
             //initWorker();
             initThree();
+
+            MYAPP.nowColor = [255, 0, 0, 255];
 
             debugEle = $('<div>');
             debugEle.css({ position:'absolute', top:'0px', color:'#fff' });
@@ -533,8 +568,6 @@
 
 
 
-
-
             window.onkeydown = keyDown.bind(this);
             window.onkeyup = keyUp.bind(this);
 
@@ -545,6 +578,7 @@
             //animate();
             resize();
             $(window).resize( resize );
+
         }
 
 
@@ -582,6 +616,7 @@
                 Vars.enterDown();
             }
         };
+
 
         function keyUp(e) {
             e.preventDefault();
@@ -678,46 +713,17 @@
 
 
         //------------------------three--------------------
-        var scene;
-        var renderer;
-        var light;
-        var camera;
-        var sphereMesh;
-        var groundMesh;
-        var dummyMesh;
-
-        var bullets = [];
-        var nowBullet = 0;
-        var bulletLength = 6;
-        var bulletImage;
-        var bulletCanvas;
-        var bulletContext;
-        var bulletParticle;
-        var bulletParticleDirection;
-
-        var cameraRadius = 200;
-        var cameraRot = 90;
-        var targetCameraRot = 90;
-        var toRad = Math.PI / 180;
-
-        var nowColor = [255, 0, 0, 255];
-
-        var canvasSize = 512;
-        var threePaint;
-
-
-
-
         function initThree(){
+
+            initScene();
 
             var loader = new THREE.OBJLoader();
             loader.load( 'models/cube.obj', assetLoadComp.bind( this ));
 
         }
-        
 
-        function assetLoadComp( assets ) {
 
+        function initScene(){
 
             scene = new THREE.Scene();
 
@@ -728,9 +734,6 @@
 
             if( MYAPP.ua.platform == 'pc' ) renderer.shadowMapEnabled = true;
             document.body.appendChild(renderer.domElement);
-
-
-            
 
             var fov = 100;
             var w = window.innerWidth;
@@ -759,15 +762,17 @@
             light.shadowCamera.updateMatrixWorld();
             light.shadowCamera.matrixWorldInverse.getInverse( light.shadowCamera.matrixWorld );
 
+        }
+        
 
+        function assetLoadComp( assets ) {
+
+            threePaint = new MYAPP.ThreePaint( canvasSize, renderer, scene, camera );
+            threePaint.resize( MYAPP.stageWidth, MYAPP.stageHeight );
             
             clock = new THREE.Clock();
             MYAPP.raycastManager = new MYAPP.RaycastManager( scene, camera );
             MYAPP.threeManager = new MYAPP.ThreeManager( camera );
-
-
-            threePaint = new ThreePaint( canvasSize, renderer, scene, camera );
-            threePaint.resize( MYAPP.stageWidth, MYAPP.stageHeight );
 
             
             //sphereMeshは
@@ -849,6 +854,8 @@
                     child.name = 'mouseMesh';
                     MYAPP.raycastManager.add( sphereMesh, true );
                     scene.add( child );
+
+                    threePaint.sphereMesh = sphereMesh;
                 }
             });
             
@@ -859,7 +866,6 @@
                 var screenVec = vecWorld2screen( sphereMesh.position.clone() );
                 screenVec.x = MYAPP.stageWidth * .5;
                 screenVec.y = MYAPP.stageHeight * .5;
-                //console.log(screenVec);
 
                 var size = MYAPP.stageWidth;
                 if( size < MYAPP.stageHeight ) size = MYAPP.stageHeight;
@@ -935,7 +941,7 @@
             }
 
             if( MYAPP.touch.downFlag ){
-                threePaint.draw( MYAPP.touch, nowColor, 20 );
+                threePaint.draw( MYAPP.touch, MYAPP.nowColor, 20 );
             }
 
         }
@@ -1181,7 +1187,7 @@
             
             var relativeTouch = getRelativeMousePosition( colorPicker1 );
             var col = getColor( colorPicker1Context, relativeTouch );
-            nowColor = col;
+            MYAPP.nowColor = col;
                 
             //濶ｲ陦ｨ遉ｺ縺ｮ螟画峩
             colorPicker2Context.fillStyle = "rgba(" +col+ ")";
@@ -1195,7 +1201,7 @@
 
         function colorPickerUpHandler( e ){
             
-            var c = { r:nowColor[0], g:nowColor[1], b:nowColor[2] };
+            var c = { r:MYAPP.nowColor[0], g:MYAPP.nowColor[1], b:MYAPP.nowColor[2] };
             for( var i = 0; i < bulletLength; i++ ){
                 bullets[i].colorChange( c );
             }
@@ -1214,7 +1220,7 @@
             colorPicker2Context.fillStyle = "rgba(" +col+ ")";
             colorPicker2Context.fillRect( 0, 0, 30, 20 );
             
-            nowColor = col;
+            MYAPP.nowColor = col;
 
             colorPicker3FillRect( col );
 
@@ -1244,7 +1250,7 @@
             var relativeTouch = getRelativeMousePosition( colorPicker3 );
             var col = getColor( colorPicker3Context, relativeTouch );
             //text001.text=col002.toString(16);
-            nowColor = col;
+            MYAPP.nowColor = col;
                 
             //濶ｲ陦ｨ遉ｺ縺ｮ螟画峩
             colorPicker2Context.fillStyle = "rgba(" +col+ ")";
@@ -1256,7 +1262,7 @@
                             
             var relativeTouch = getRelativeMousePosition( colorPicker3 );
             var col = getColor( colorPicker3Context, relativeTouch );
-            nowColor = col;
+            MYAPP.nowColor = col;
             colorPicker2Context.fillStyle = "rgba(" +col+ ")";
             colorPicker2Context.fillRect( 0, 0, 30, 20 );
     
@@ -1759,7 +1765,7 @@
                 var pluseY = radiusY * Math.sin( rad );
                 if( dist < 4 ){
                     this.throwFlag = false;
-                    console.log( "hit!" );
+                    
                     if( this.callback ) this.callback( this.drawPosition, this.targetPosition );
                     this.position.copy( defaultPosition );
                     this.targetPosition.copy( defaultPosition );
@@ -1804,7 +1810,7 @@
             //
             bulletParticle.position.copy( bulletPos );
             bulletParticle.on();
-            var c = 'rgb(' + nowColor[0] + ',' + nowColor[1] + ',' + nowColor[2] + ')';
+            var c = 'rgb(' + MYAPP.nowColor[0] + ',' + MYAPP.nowColor[1] + ',' + MYAPP.nowColor[2] + ')';
             bulletParticle.setColor( c );
 
             //回転用のベクトル2つ
@@ -2012,6 +2018,11 @@
             }
 
         }
+
+        return Main;
+
+    })();
+
 
     </script>
 

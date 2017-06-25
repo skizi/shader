@@ -13,6 +13,7 @@
     </style>
 
 
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
     <script src="../../js/three.min.js"></script>
     <script src="../../js/postprocessing/EffectComposer.js"></script>
     <script src="../../js/postprocessing/RenderPass.js"></script>
@@ -78,49 +79,100 @@
 
     <script>
 
+    var MYAPP = MYAPP||{};
+
+    $( window ).load(function(){
+
+        new MYAPP.Main();
+
+    });
+
+    MYAPP.Main = (function(){
 
         var scene;
         var renderer;
         var camera;
 
-
-
-        scene = new THREE.Scene();
-
-        renderer = new THREE.WebGLRenderer();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMapEnabled = true;
-        document.body.appendChild(renderer.domElement);
-
-        var fov = 100;
-        var aspect = window.innerWidth / window.innerHeight;
-        camera = new THREE.PerspectiveCamera(fov, aspect, .1, 200);
-        camera.position.x = 0;
-        camera.position.y = 13;
-        camera.position.z = -15;
-        camera.lookAt( new THREE.Vector3( 0, 8, 0 ) );
-
-        
-        var light = new THREE.DirectionalLight(0xffffff, .5);
-        light.position.set( 0, 15, 0);
-        light.castShadow = true;
-        scene.add(light);
-
-
-        var texture = THREE.ImageUtils.loadTexture('assets/zako.png');
-        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-        var material = new THREE.MeshBasicMaterial({map:texture});
-        material.morphTargets = true;
-        
-
-
-
-
         var mesh;
         var meshs = [];
         var meshLength = 0;
-        var jsonLoader = new THREE.JSONLoader();
-        jsonLoader.load( "assets/zako.js", jsonLoadCompHandler );
+        var material;
+        var texture;
+        var textureLoadCount = 0;
+
+        var layer1Composer;
+
+        var rot = 0;
+        var radius = 15;
+        var clock = new THREE.Clock();
+        var start = Date.now();
+
+
+        function Main(){
+
+            initScene();
+            initTexture();
+
+        }
+
+
+        function initScene(){
+
+            scene = new THREE.Scene();
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMapEnabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            var fov = 100;
+            var aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(fov, aspect, .1, 200);
+            camera.position.x = 0;
+            camera.position.y = 13;
+            camera.position.z = -15;
+            camera.lookAt( new THREE.Vector3( 0, 8, 0 ) );
+
+            
+            var light = new THREE.DirectionalLight(0xffffff, .5);
+            light.position.set( 0, 15, 0);
+            light.castShadow = true;
+            scene.add(light);
+        
+        }
+
+
+        function initTexture(){
+
+            texture = THREE.ImageUtils.loadTexture( 'assets/zako.png', THREE.UVMapping, textureLoadCheck );
+            //texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+            texture.minFilter = THREE.LinearFilter;
+            material = new THREE.MeshBasicMaterial({ map:texture });
+            material.morphTargets = true;
+
+        }
+
+
+        function textureLoadCheck(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 1 ){
+                initObject();
+                initComposer();
+                animate();
+            }
+
+        }
+
+
+        function initObject(){
+
+            var jsonLoader = new THREE.JSONLoader();
+            jsonLoader.load( 'assets/zako.js', jsonLoadCompHandler );
+
+        }
+
+
         function jsonLoadCompHandler( geometry, materials ) {
         
             geometry.computeMorphNormals();
@@ -148,6 +200,8 @@
             meshLength = meshs.length;
 
         }
+
+
         function getAnimationMesh( geometry, materials ) {
 
             for (var i = 0; i < materials.length; i++) materials[i].morphTargets = true;
@@ -170,67 +224,57 @@
         }
 
 
+        function initComposer(){
+
+            var w = window.innerWidth;
+            var h = window.innerHeight;
+            var renderTarget = new THREE.WebGLRenderTarget( w, h );
+            // renderComposer = new THREE.EffectComposer( renderer, renderTarget );
 
 
+            layer1Composer = new THREE.EffectComposer( renderer );
 
+            var renderPass = new THREE.RenderPass( scene, camera );
+            layer1Composer.addPass( renderPass );
 
-
-        var w = window.innerWidth;
-        var h = window.innerHeight;
-        var renderTarget = new THREE.WebGLRenderTarget( w, h );
-        // renderComposer = new THREE.EffectComposer( renderer, renderTarget );
-
-
-        var layer1Composer = new THREE.EffectComposer( renderer );
-
-        var renderPass = new THREE.RenderPass( scene, camera );
-        layer1Composer.addPass( renderPass );
-
-        var shader = {
-            uniforms: {
-                tDiffuse: {
-                    type: "t",
-                    value: null
+            var shader = {
+                uniforms: {
+                    tDiffuse: {
+                        type: "t",
+                        value: null
+                    },
+                    time:{
+                        type:'f',
+                        value:0.0
+                    },
+                    imgWidth:{
+                        type:'f',
+                        value:w
+                    },
+                    imgHeight:{
+                        type:'f',
+                        value:h
+                    },
+                    mosicSize:{
+                        type:'f',
+                        value:16.0
+                    }
                 },
-                time:{
-                    type:'f',
-                    value:0.0
-                },
-                imgWidth:{
-                    type:'f',
-                    value:w
-                },
-                imgHeight:{
-                    type:'f',
-                    value:h
-                },
-                mosicSize:{
-                    type:'f',
-                    value:16.0
-                }
-            },
-            vertexShader: document.getElementById('vshader').textContent,
-            fragmentShader: document.getElementById('fshader').textContent
-        };
-        
-        var shaderPass = new THREE.ShaderPass(shader);
-        shaderPass.needsSwap = true;
-        layer1Composer.addPass(shaderPass);
+                vertexShader: document.getElementById('vshader').textContent,
+                fragmentShader: document.getElementById('fshader').textContent
+            };
+            
+            var shaderPass = new THREE.ShaderPass(shader);
+            shaderPass.needsSwap = true;
+            layer1Composer.addPass(shaderPass);
 
-        var toScreen = new THREE.ShaderPass(THREE.CopyShader);
-        toScreen.renderToScreen = true;
-        layer1Composer.addPass(toScreen);
+            var toScreen = new THREE.ShaderPass(THREE.CopyShader);
+            toScreen.renderToScreen = true;
+            layer1Composer.addPass(toScreen);
+
+        }
 
 
-
-
-
-        var rot = 0;
-        var radius = 15;
-
-        var clock = new THREE.Clock();
-        var start = Date.now();
-        animate();
         function animate() {
 
             requestAnimationFrame(animate);
@@ -256,6 +300,10 @@
             camera.lookAt( new THREE.Vector3( 0, 8, 0 ) );
 
         }
+
+        return Main;
+
+    })();
 
 
     </script>

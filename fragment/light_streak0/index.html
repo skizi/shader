@@ -166,11 +166,11 @@
 
         varying float diffuse2;
 
-    varying vec3 vEyeDirection;
-    varying vec3 vLightDirection;
-    varying vec3 specularHalfVec;
+        varying vec3 vEyeDirection;
+        varying vec3 vLightDirection;
+        varying vec3 specularHalfVec;
 
-    varying float lightStrength;
+        varying float lightStrength;
 
 
 
@@ -222,11 +222,11 @@
 
         #endif
 
-#define saturate(a) clamp( a, 0.0, 1.0 )
+        #define saturate(a) clamp( a, 0.0, 1.0 )
 
-float pow2( const in float x ) { return x*x; }
-float pow3( const in float x ) { return x*x*x; }
-float pow4( const in float x ) { float x2 = x*x; return x2*x2; }
+        float pow2( const in float x ) { return x*x; }
+        float pow3( const in float x ) { return x*x*x; }
+        float pow4( const in float x ) { float x2 = x*x; return x2*x2; }
 
                 
         void main(void){
@@ -297,15 +297,15 @@ float pow4( const in float x ) { float x2 = x*x; return x2*x2; }
     diffuse2 = clamp(dot(normalize(light), normalize( wNormal ) ), 0.0, 1.0 );
 
 
-//lightStrength
-lightStrength = 1.;
-float lightDistance = length( light );
-float cutoffDistance = 5.;// pointLights[0].distance;
-float decayExponent = 1.;//pointLights[0].decay;
-float distanceFalloff = 1.0 / max( pow( lightDistance, decayExponent ), 0.01 );
-float maxDistanceCutoffFactor = pow2( saturate( 1.0 - pow4( lightDistance / cutoffDistance ) ) );
-lightStrength = distanceFalloff * maxDistanceCutoffFactor;
-diffuse2 *= lightStrength;
+    //lightStrength
+    lightStrength = 1.;
+    float lightDistance = length( light );
+    float cutoffDistance = 5.;// pointLights[0].distance;
+    float decayExponent = 1.;//pointLights[0].decay;
+    float distanceFalloff = 1.0 / max( pow( lightDistance, decayExponent ), 0.01 );
+    float maxDistanceCutoffFactor = pow2( saturate( 1.0 - pow4( lightDistance / cutoffDistance ) ) );
+    lightStrength = distanceFalloff * maxDistanceCutoffFactor;
+    diffuse2 *= lightStrength;
 
 
         //normal
@@ -364,8 +364,16 @@ diffuse2 *= lightStrength;
 
 <script>
 
+var MYAPP = MYAPP||{};
 
-$( window ).load( init );
+$( window ).load(function(){
+
+    new MYAPP.Main();
+
+});
+
+
+MYAPP.Main = (function(){
     
     var self = this;
     var ua;
@@ -437,7 +445,7 @@ $( window ).load( init );
 
 
 
-    function init(){
+    function Main(){
 
         stageW = window.innerWidth;
         stageH = window.innerHeight;
@@ -470,11 +478,8 @@ $( window ).load( init );
     function initScene(){
 
         scene = new THREE.Scene();
-        //scene.fog = new THREE.Fog(0xffffff, 3, 20);
-        //scene.fog = new THREE.FogExp2( 0xff0000 );
 
         renderer = new THREE.WebGLRenderer({ antialias: false });
-        console.log(renderer);
         if( ua.platform != 'pc' ) renderer.devicePixelRatio = .5;
         renderer.setClearColor( 0xffffff );//0xd5d5d5
         renderer.setSize( stageW, stageH );
@@ -644,13 +649,14 @@ $( window ).load( init );
         }
 
         for( var key in mesh.animations ){
-            console.log(key);
             mesh.animations[ key ].loop = false;
             mesh.animations[ key ].weight = 0;
         }
 
         return mesh;
+
     }
+
 
     function dot( vec1, vec2 ){
         
@@ -858,6 +864,10 @@ $( window ).load( init );
         camera.lookAt( camera.targetPos );
 
     }
+
+    return Main;
+
+})();
 
 </script>
 
