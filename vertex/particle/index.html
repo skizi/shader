@@ -5,7 +5,27 @@
     <meta charset="utf-8" />
     <title>Shader TEST</title>
     <script src="../../js/three.min.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
 
+    <style>
+        body{
+            margin:0;
+            background-color: #000;
+            overflow: hidden;
+        }
+
+        p#loading{
+            width:100%;
+            margin-top:-20px;
+            text-align: center;
+            position:absolute;
+            top:50%;
+            left:0px;
+            color:#fff;
+            font-size:40px;
+            font-style: italic;
+        }
+    </style>
 
     <script type="x-shader/x-vertex" id="vshader">
     uniform float time;
@@ -90,147 +110,193 @@ tex.a *= opacity;
     </script>
 </head>
 <body>
-<style>
-    body{
-        background-color:#000;
-    }
-
-</style>
+<p id="loading">loading...</p>
 
     <script>
 
+    var MYAPP = MYAPP||{};
+
+
+    $( window ).load(function(){
+
+        new MYAPP.Main();
+
+    });
+
+
+
+    MYAPP.Main = (function(){
 
         var scene;
         var renderer;
         var camera;
 
-
-
-        scene = new THREE.Scene();
-
-        renderer = new THREE.WebGLRenderer();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMapEnabled = true;
-        document.body.appendChild(renderer.domElement);
-
-        var fov = 100;
-        var aspect = window.innerWidth / window.innerHeight;
-        camera = new THREE.PerspectiveCamera(fov, aspect, 1, 20000);
-        camera.position.x = 0;
-        camera.position.y = 3;
-        camera.position.z = -5;
-        camera.lookAt( new THREE.Vector3( 0, 3, 0 ) );
+        var starTexture2;
+        var flareTexture1;
+        var flareTexture3;
+        var material;
+        var textureLoadCount = 0;
 
 
 
+        function Main(){
 
-        var c = new THREE.Color(0x68c1ff);
-        //var c = new THREE.Color(0xff7c1d);
-        
-        var material = new THREE.ShaderMaterial({
-            vertexShader: document.getElementById('vshader').textContent,
-            fragmentShader: document.getElementById('fshader').textContent,
-            
-            uniforms: {
-                texture1: {
-                    type: 't',
-                    value: THREE.ImageUtils.loadTexture('img/flare3.png')
-                },
-                texture2: {
-                    type: 't',
-                    value: THREE.ImageUtils.loadTexture('img/star2.png')
-                },
-                texture3: {
-                    type: 't',
-                    value: THREE.ImageUtils.loadTexture('img/flare1.png')
-                },
-                time:{
-                    type:'f',
-                    value:0.0
-                },
-                color:{
-                    type:'v4',
-                    value:new THREE.Vector4(c.r, c.g, c.b, 1)
-                },
-                opacity:{
-                    type:'f',
-                    value:1.0
-                }
-            },
-            attributes:{
-                index:{
-                    type:'f',
-                    value:[]
-                },
-                direction:{
-                    type:'v3',
-                    value:[]
-                },
-                duration:{
-                    type:'f',
-                    value:[]
-                },
-                size:{
-                    type:'f',
-                    value:[]
-                },
-                rotationSpeed:{
-                    type:'f',
-                    value:[]
-                }
-            },
-            blending: THREE.AdditiveBlending,
-            //alphaTest:.5,
-            depthWrite:false,
-            //depthTest:true,
-            transparent: true
-        });
+            scene = new THREE.Scene();
 
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMapEnabled = true;
+            document.body.appendChild(renderer.domElement);
 
+            var fov = 100;
+            var aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(fov, aspect, 1, 20000);
+            camera.position.x = 0;
+            camera.position.y = 3;
+            camera.position.z = -5;
+            camera.lookAt( new THREE.Vector3( 0, 3, 0 ) );
 
-        var geometry = new THREE.BoxGeometry(1, 1, 1, 4, 4);
-        var mesh = new THREE.PointCloud(geometry, material);
-        mesh.position.y = 3;
-        mesh.castShadow  = true;
-        scene.add(mesh);
+            initTexture();
 
-mesh.material.uniforms.opacity.value = .9;
-
-        //set attributes
-        var indexs = [];
-        var directions = [];
-        var durations = [];
-        var sizes = [];
-        var rotationSpeeds = [];
-        var radius = new THREE.Vector3(4, 2, 4);
-        var length = geometry.vertices.length;
-        for( var i = 0; i < length; i++){
-            indexs.push(i);
-            directions.push(new THREE.Vector3(
-                radius.x * .5 - radius.x * Math.random(),
-                radius.y * .5 - radius.y * Math.random(),
-                radius.z * .5 - radius.z * Math.random()).normalize()
-            );
-            durations.push(.5 + .1 * Math.random());
-            sizes.push(50 + 50 * Math.random());
-            rotationSpeeds.push(2 - 4 * Math.random());
         }
-        material.attributes.index.value = indexs;
-        material.attributes.direction.value = directions;
-        material.attributes.duration.value = durations;
-        material.attributes.size.value = sizes;
-        material.attributes.rotationSpeed.value = rotationSpeeds;
 
 
-        var material2 = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe:true });
-        geometry = new THREE.PlaneGeometry( 10, 10, 5, 5 );
-        mesh = new THREE.Mesh( geometry, material2 );
-        mesh.rotation.x = 90 * 180 / Math.PI;
-        mesh.receiveShadow = true;
-        scene.add( mesh );
+        function initTexture(){
+
+            starTexture2 = THREE.ImageUtils.loadTexture( 'img/star2.png', THREE.UVMapping, textureLoadCheck );
+            flareTexture1 = THREE.ImageUtils.loadTexture( 'img/flare1.png', THREE.UVMapping, textureLoadCheck );
+            flareTexture3 = THREE.ImageUtils.loadTexture( 'img/flare3.png', THREE.UVMapping, textureLoadCheck );
+        }
+
+
+        function textureLoadCheck(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 3 ){
+
+                initMaterial();
+                initObject();
+                animate();
+                $( '#loading' ).remove();
+
+            }
+
+        }
+
+
+        function initMaterial(){
+
+            var c = new THREE.Color(0x68c1ff);
+            //var c = new THREE.Color(0xff7c1d);
+            
+            material = new THREE.ShaderMaterial({
+                vertexShader: document.getElementById('vshader').textContent,
+                fragmentShader: document.getElementById('fshader').textContent,
+                
+                uniforms: {
+                    texture1: {
+                        type: 't',
+                        value: flareTexture3
+                    },
+                    texture2: {
+                        type: 't',
+                        value: starTexture2
+                    },
+                    texture3: {
+                        type: 't',
+                        value: flareTexture1
+                    },
+                    time:{
+                        type:'f',
+                        value:0.0
+                    },
+                    color:{
+                        type:'v4',
+                        value:new THREE.Vector4(c.r, c.g, c.b, 1)
+                    },
+                    opacity:{
+                        type:'f',
+                        value:.9
+                    }
+                },
+                attributes:{
+                    index:{
+                        type:'f',
+                        value:[]
+                    },
+                    direction:{
+                        type:'v3',
+                        value:[]
+                    },
+                    duration:{
+                        type:'f',
+                        value:[]
+                    },
+                    size:{
+                        type:'f',
+                        value:[]
+                    },
+                    rotationSpeed:{
+                        type:'f',
+                        value:[]
+                    }
+                },
+                blending: THREE.AdditiveBlending,
+                //alphaTest:.5,
+                depthWrite:false,
+                //depthTest:true,
+                transparent: true
+            });
+        
+        }
+
+
+        function initObject(){
+
+            var geometry = new THREE.BoxGeometry(1, 1, 1, 4, 4);
+            var mesh = new THREE.PointCloud( geometry, material );
+            mesh.position.y = 3;
+            mesh.castShadow  = true;
+            scene.add(mesh);
+
+
+            //set attributes
+            var indexs = [];
+            var directions = [];
+            var durations = [];
+            var sizes = [];
+            var rotationSpeeds = [];
+            var radius = new THREE.Vector3(4, 2, 4);
+            var length = geometry.vertices.length;
+            for( var i = 0; i < length; i++){
+                indexs.push(i);
+                directions.push(new THREE.Vector3(
+                    radius.x * .5 - radius.x * Math.random(),
+                    radius.y * .5 - radius.y * Math.random(),
+                    radius.z * .5 - radius.z * Math.random()).normalize()
+                );
+                durations.push(.5 + .1 * Math.random());
+                sizes.push(50 + 50 * Math.random());
+                rotationSpeeds.push(2 - 4 * Math.random());
+            }
+            material.attributes.index.value = indexs;
+            material.attributes.direction.value = directions;
+            material.attributes.duration.value = durations;
+            material.attributes.size.value = sizes;
+            material.attributes.rotationSpeed.value = rotationSpeeds;
+
+
+            var material2 = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe:true });
+            geometry = new THREE.PlaneGeometry( 10, 10, 5, 5 );
+            mesh = new THREE.Mesh( geometry, material2 );
+            mesh.rotation.x = 90 * 180 / Math.PI;
+            mesh.receiveShadow = true;
+            scene.add( mesh );
+
+        }
+
 
         var start = Date.now();
-        animate();
         function animate() {
 
             requestAnimationFrame(animate);
@@ -243,6 +309,9 @@ mesh.material.uniforms.opacity.value = .9;
 
         }
 
+        return Main;
+
+    })();
 
     </script>
 

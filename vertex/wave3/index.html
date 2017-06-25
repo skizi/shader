@@ -1,42 +1,43 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<title>Color Change Demo</title>
-        <meta name="viewport" content="width=640,initial-scale=.5">
+    
+	<title>Color Change Demo</title>
+    <meta name="viewport" content="width=640,initial-scale=.5">
 
-		<style>
-			body{
-				margin:0;
-				background-color: #000;
-				overflow: hidden;
-			}
+	<style>
+		body{
+			margin:0;
+			background-color: #000;
+			overflow: hidden;
+		}
 
-            div#cover{
-                width:100%;
-                height:100%;
-                background-color: #fff;
-                position: fixed;
-                top:0px;
-                transition-duration:1s;
-                transition-property:opacity;
-                transition-delay:1s;
-            }
+        div#cover{
+            width:100%;
+            height:100%;
+            background-color: #fff;
+            position: fixed;
+            top:0px;
+            transition-duration:1s;
+            transition-property:opacity;
+            transition-delay:1s;
+        }
 
-            p#loading{
-                width:100%;
-                margin-top:-20px;
-                text-align: center;
-                position:absolute;
-                top:50%;
-                left:0px;
-                color:#333;
-                font-size:40px;
-                font-style: italic;
-                opacity:0;
-                transition-duration:.5s;
-                transition-property:opacity;
-            }
-		</style>
+        p#loading{
+            width:100%;
+            margin-top:-20px;
+            text-align: center;
+            position:absolute;
+            top:50%;
+            left:0px;
+            color:#333;
+            font-size:40px;
+            font-style: italic;
+            opacity:0;
+            transition-duration:.5s;
+            transition-property:opacity;
+        }
+	</style>
     <script src="../../js/three.min.js"></script>
 	<script src="../../js/loaders/BinaryLoader.js"></script>
     <script src="../../js/loaders/MTLLoader.js"></script>
@@ -251,9 +252,20 @@
 
     <script>
 
-    	var MYAPP = {
-    		mousePosition:new THREE.Vector3()
-    	};
+	var MYAPP = {
+		mousePosition:new THREE.Vector3()
+	};
+
+
+    $( window ).load(function(){
+
+        new MYAPP.Main();
+
+    });
+
+
+
+    MYAPP.Main = (function(){
 
         var scene;
         var renderer;
@@ -297,7 +309,7 @@
 
 
 
-	    $( window ).load(function(){
+	    function Main(){
 
             var u = window.navigator.userAgent.toLowerCase();
             if( u.indexOf("iphone") != -1 ){
@@ -351,7 +363,7 @@
             setInterval( animate, 1000 / fps );
             animate();
 
-	    });
+	    }
 
 
         function initScene(){
@@ -609,12 +621,11 @@
                 var length = children.length;
                 for( var i = 0; i < length; i++ ){
                     var child = children[i];
-                    console.log( child );
 
                     if( child && child.type == 'Mesh' ){
 
                         var name = child.material.name;
-    console.log(name);
+
                         child.name = name;
                         child.position.set( 0, 0, 0 );
                         child.geometry.computeVertexNormals();
@@ -765,21 +776,22 @@
         }
 
 
+        function screen2world() {
 
+            var _touch = new THREE.Vector3( MYAPP.touch.x, MYAPP.touch.y, .5 );
+            _touch.x = (_touch.x / stageWidth) * 2 - 1;
+            _touch.y = -(_touch.y / stageHeight) * 2 + 1;
 
+            //projector.unprojectVector(_touch, camera);
+            _touch.unproject( camera );
 
+            return _touch;
+        }
 
-function screen2world() {
+        return Main;
 
-    var _touch = new THREE.Vector3( MYAPP.touch.x, MYAPP.touch.y, .5 );
-    _touch.x = (_touch.x / stageWidth) * 2 - 1;
-    _touch.y = -(_touch.y / stageHeight) * 2 + 1;
+    })();
 
-    //projector.unprojectVector(_touch, camera);
-    _touch.unproject( camera );
-
-    return _touch;
-}
 
 
 MYAPP.RaycastManager = (function () {

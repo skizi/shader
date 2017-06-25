@@ -3,7 +3,14 @@ var ThreeUVPaint = (function(){
 	var scene;
 	var camera;
 	var renderer;
+	var light;
+	var initCompFunc;
 
+	var paintMap;
+	var waterTexture;
+	var groundTexture;
+	var groundTexture2
+	var groundNormalTexture2;
 
 	var mesh;
     var renderTarget;
@@ -25,16 +32,20 @@ var ThreeUVPaint = (function(){
     var brushImageMaxW = 0;
     var brushImageMaxH = 0;
 
+    var textureLoadCount = 0;
 
-	function ThreeUVPaint( _scene, _camera, _renderer ){
+
+	function ThreeUVPaint( _scene, _camera, _renderer, _light, callback ){
 
 		scene = _scene;
 		camera = _camera;
 		renderer = _renderer;
+		light = _light;
+		initCompFunc = callback;
 
 		initBrush();
 		initCanvas();
-		this.initMaterial();
+		this.initTexture();
 
         renderTarget = new THREE.WebGLRenderTarget(
 	        	window.innerWidth,
@@ -94,8 +105,8 @@ var ThreeUVPaint = (function(){
 		//var image = mesh.material.map.image;
 		var ctx		= image.getContext('2d');
 		if (_x > 0){
-			//circle( _x, _y, drawRadius, nowColor, ctx );
-			drawImage( _x, _y, brushImages[0], nowColor, ctx );
+			//circle( _x, _y, drawRadius, MYAPP.nowColor, ctx );
+			drawImage( _x, _y, brushImages[0], MYAPP.nowColor, ctx );
 		}
 	}
 
@@ -193,77 +204,92 @@ var ThreeUVPaint = (function(){
 
 	ThreeUVPaint.prototype = {
 
+		initTexture : function(){
 
-		initMaterial : function(){
-
-			var paintMap = new THREE.Texture( paintCanvas );
+			paintMap = new THREE.Texture( paintCanvas );
 			paintMap.flipY = false;
 			paintMap.needsUpdate = true;
 		    //paintMaterial = new THREE.MeshLambertMaterial( { map:paintMap } );
 
-		    var waterTexture = THREE.ImageUtils.loadTexture( 'img/water1.jpg' );
+		    waterTexture = THREE.ImageUtils.loadTexture( 'img/water1.jpg', THREE.UVMapping, this.textureLoadCheck.bind( this ) );
             waterTexture.wrapS = waterTexture.wrapT = THREE.RepeatWrapping;
-		    var waterNormalTexture = THREE.ImageUtils.loadTexture( 'img/water_normal3.jpg' );
+		    waterNormalTexture = THREE.ImageUtils.loadTexture( 'img/water_normal3.jpg', THREE.UVMapping, this.textureLoadCheck.bind( this ) );
             waterNormalTexture.wrapS = waterNormalTexture.wrapT = THREE.RepeatWrapping;
-		    var groundTexture = THREE.ImageUtils.loadTexture( 'img/beach0_512.jpg' );
+		    groundTexture = THREE.ImageUtils.loadTexture( 'img/beach0_512.jpg', THREE.UVMapping, this.textureLoadCheck.bind( this ) );
             groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
-		    var groundTexture2 = THREE.ImageUtils.loadTexture( 'img/grass0_512.jpg' );
+		    groundTexture2 = THREE.ImageUtils.loadTexture( 'img/grass0_512.jpg', THREE.UVMapping, this.textureLoadCheck.bind( this ) );
             groundTexture2.wrapS = groundTexture2.wrapT = THREE.RepeatWrapping;
-		    var groundNormalTexture2 = THREE.ImageUtils.loadTexture( 'img/grass0_normal_512.jpg' );
+		    groundNormalTexture2 = THREE.ImageUtils.loadTexture( 'img/grass0_normal_512.jpg', THREE.UVMapping, this.textureLoadCheck.bind( this ) );
             groundNormalTexture2.wrapS = groundNormalTexture2.wrapT = THREE.RepeatWrapping;
 
+        },
+
+
+        textureLoadCheck : function(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 5 ){
+                this.initMaterial();
+                initCompFunc();
+            }
+
+        },
+
+
+        initMaterial : function(){
+
 		    paintMaterial = new THREE.ShaderMaterial({
-					vertexShader: document.getElementById('vshader').textContent,
-					fragmentShader: document.getElementById('fshader').textContent,
-					uniforms: {
-						texture: { 
-							type: 't',
-							value: paintMap //THREE.ImageUtils.loadTexture('img/color0.jpg')
-						},
-						waterTexture:{
-							type: 't',
-							value: waterTexture
-						},
-						waterNormalTexture:{
-							type:'t',
-							value:waterNormalTexture
-						},
-						groundTexture:{
-							type: 't',
-							value: groundTexture
-						},
-						groundTexture2:{
-							type:'t',
-							value:groundTexture2
-						},
-						groundNormalTexture2:{
-							type:'t',
-							value:groundNormalTexture2
-						},
-						lightPos: {
-							type:'v3',
-							value:new THREE.Vector3()
-						},
-						eyePosition:{
-							type:'v3',
-							value:new THREE.Vector3()
-						},
-		                time:{
-		                    type:"f",
-		                    value:0.0
-		                }
+				vertexShader: document.getElementById('vshader').textContent,
+				fragmentShader: document.getElementById('fshader').textContent,
+				uniforms: {
+					texture: { 
+						type: 't',
+						value: paintMap //THREE.ImageUtils.loadTexture('img/color0.jpg')
 					},
-					needsUpdate:true,
-					transparent:true
-				});
+					waterTexture:{
+						type: 't',
+						value: waterTexture
+					},
+					waterNormalTexture:{
+						type:'t',
+						value:waterNormalTexture
+					},
+					groundTexture:{
+						type: 't',
+						value: groundTexture
+					},
+					groundTexture2:{
+						type:'t',
+						value:groundTexture2
+					},
+					groundNormalTexture2:{
+						type:'t',
+						value:groundNormalTexture2
+					},
+					lightPos: {
+						type:'v3',
+						value:light.position
+					},
+					eyePosition:{
+						type:'v3',
+						value:camera.position
+					},
+	                time:{
+	                    type:"f",
+	                    value:0.0
+	                }
+				},
+				needsUpdate:true,
+				transparent:true
+			});
+
 		    this.paintMaterial = paintMaterial;
 
-
 		    colorMaterial = new THREE.ShaderMaterial({
-					vertexShader: document.getElementById('color-vshader').textContent,
-					fragmentShader: document.getElementById('color-fshader').textContent,
-					needsUpdate:true
-				});
+				vertexShader: document.getElementById('color-vshader').textContent,
+				fragmentShader: document.getElementById('color-fshader').textContent,
+				needsUpdate:true
+			});
 		},
 
 

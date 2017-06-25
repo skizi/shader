@@ -1,15 +1,27 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<title>three.js flat shader</title>
+	<title>three.js flat shader</title>
 
-		<style>
-			body{
-				margin:0;
-				background-color: #fff;
-				overflow: hidden;
-			}
-		</style>
+	<style>
+		body{
+			margin:0;
+			background-color: #fff;
+			overflow: hidden;
+		}
+
+        p#loading{
+            width:100%;
+            margin-top:-20px;
+            text-align: center;
+            position:absolute;
+            top:50%;
+            left:0px;
+            color:#fff;
+            font-size:40px;
+            font-style: italic;
+        }
+	</style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
     <script src="../../js/ysd.js"></script>
     <script src="../../js/threejs69/three.js"></script>
@@ -451,7 +463,7 @@
 </script>
 </head>
 <body>
-
+<p id="loading">loading...</p>
 
 <script>
 
@@ -643,6 +655,7 @@
 	        var jsonLoader = new THREE.JSONLoader();
 	        jsonLoader.load(url, hairLoadCompHandler );
 
+            $( '#loading' ).remove();
         }
 
 

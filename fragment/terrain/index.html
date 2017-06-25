@@ -260,10 +260,20 @@
 
     <script>
 
-	    MYAPP = {};
+	MYAPP = {};
+
+	$( window ).ready(function(){
+
+		new MYAPP.Main();
+
+	});
+
+	MYAPP.Main = (function(){
+
 		MYAPP.touchManager = new SKIZI.TouchManager();
 		MYAPP.touchManager.movePreventDefaultNoneFlag = true;
 		MYAPP.touch = SKIZI.touch;
+        MYAPP.nowColor = [255, 0, 0, 255];
 
 		var Input = { 
 				x:0,
@@ -276,8 +286,7 @@
 		var debugEle;
 
 
-		$( window ).ready( init );
-		function init(){
+		function Main(){
 
 			$( document.body ).css({ margin:0 });
 
@@ -287,7 +296,6 @@
 	        debugEle.css({ position:'absolute', top:'0px', color:'#fff' });
 	        $( document.body ).append( debugEle );
 
-	        animate();
 	        $(window).resize( resize );
 
 
@@ -295,7 +303,7 @@
 			colorPicker = new ColorPicker();
 			colorPicker.element.on( 'callback', function colorPickerCallBackHandler(){
 				var obj = arguments[1];
-				nowColor = obj.nowColor;
+				MYAPP.nowColor = obj.nowColor;
 	    	}.bind( this ) );
 
 
@@ -396,13 +404,16 @@
         var cameraRot = 90;
         var toRad = Math.PI / 180;
 
-        var nowColor = [255, 0, 0, 255];
 
         var threeUVPaint;
 
     	var clock = new THREE.Clock();
     	var raycastManager;
     	var raycaster;
+
+    	var groundTexture;
+    	var textureLoadCount = 0;
+
 
         function initThree(){
 
@@ -429,10 +440,32 @@
 	        scene.add(light);
 
 
-	        threeUVPaint = new ThreeUVPaint( scene, camera, renderer );
-	        threeUVPaint.paintMaterial.uniforms.lightPos.value = light.position;
-	        threeUVPaint.paintMaterial.uniforms.eyePosition.value = camera.position;
-	        
+	        threeUVPaint = new ThreeUVPaint( scene, camera, renderer, light, function(){
+	        	initTexture();
+	        } );
+
+        }
+
+
+        function initTexture(){
+
+            groundTexture = THREE.ImageUtils.loadTexture( 'img/ground0_512.jpg', THREE.UVMapping, textureLoadCheck );
+
+        }
+
+
+        function textureLoadCheck(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 1 ){
+                initObject();
+		        animate();
+            }
+
+        }
+
+
+        function initObject(){
 
 	        //sphre
 	        var geometry = new THREE.SphereGeometry( 100, 100, 100 );
@@ -445,10 +478,9 @@
 
 
 	        //床
-            var map = THREE.ImageUtils.loadTexture( 'img/ground0_512.jpg' );
-            map.repeat.set( 2, 2 );
-            map.wrapS = map.wrapT = THREE.RepeatWrapping;
-	        var material2 = new THREE.MeshLambertMaterial({ map:map });
+            groundTexture.repeat.set( 2, 2 );
+            groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+	        var material2 = new THREE.MeshLambertMaterial({ map:groundTexture });
 	        //material = new THREE.MeshBasicMaterial( { color:0xff0000, wireframe:true } );
 	        geometry = new THREE.PlaneGeometry( 400, 400, 5, 5 );
 	        mesh = new THREE.Mesh( geometry, material2 );
@@ -508,7 +540,7 @@
 					return;
 				}
 
-				threeUVPaint.draw( MYAPP.touch, nowColor, 50 );
+				threeUVPaint.draw( MYAPP.touch, MYAPP.nowColor, 50 );
 			
 			}
 
@@ -571,6 +603,10 @@
         	threeUVPaint.resize();
 
         }
+
+        return Main;
+
+     })();
 
 
     </script>

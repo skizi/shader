@@ -414,10 +414,17 @@ vec3 curlNoise( vec3 p ){
 
 <script>
 
+var MYAPP = MYAPP||{};
 
-$( window ).load( init );
+$( window ).load(function(){
 
-    
+    new MYAPP.Main();
+
+});
+
+
+MYAPP.Main = (function(){
+
     var textureLoader = new THREE.TextureLoader();
 
     //------------------------three--------------------
@@ -487,7 +494,7 @@ $( window ).load( init );
 
 
 
-    function init(){
+    function Main(){
 
         stageW = window.innerWidth;
         stageH = window.innerHeight;
@@ -694,8 +701,8 @@ $( window ).load( init );
             var _length = 100;
             for( var i = 0; i < _length; i++ ){
                 meshs[mergeCount].updateMatrix();
-                //geometry.merge(meshs[i].geometry, meshs[i].matrix, i);
-                THREE.GeometryUtils.merge( geometry, meshs[mergeCount] );
+                geometry.merge(meshs[mergeCount].geometry, meshs[mergeCount].matrix, mergeCount );
+                //THREE.GeometryUtils.merge( geometry, meshs[mergeCount] );
                 mergeCount++;
             }
 
@@ -1065,6 +1072,10 @@ $( window ).load( init );
         camera.lookAt( camera.targetPos );
 
     }
+
+    return Main;
+
+})();
 
 </script>
 
