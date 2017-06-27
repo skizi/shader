@@ -1,7 +1,7 @@
-# three.js Earth Afterimage
+# three.js particle2
 
 
-■地球  
+■particle2  
 緯度経度をからラインを引いたり、  
 マウスを右側に移動させることで残像のエフェクトをインタラクティブに加えることができます。  
-![three.js Earth Afterimage](http://skizi.jp/github/assets/images/earth0.gif)
+![three.js particle2](http://skizi.jp/github/assets/images/particle2.gif)

@@ -1,7 +1,7 @@
-# three.js Earth Afterimage
+# three.js Texture Paint
 
 
-■地球  
+Texture Paint  
 緯度経度をからラインを引いたり、  
 マウスを右側に移動させることで残像のエフェクトをインタラクティブに加えることができます。  
-![three.js Earth Afterimage](http://skizi.jp/github/assets/images/earth0.gif)
+![Texture Paint](http://skizi.jp/github/assets/images/paint0.gif)
