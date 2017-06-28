@@ -2,6 +2,6 @@
 
 
 ■GPGPU2  
-緯度経度をからラインを引いたり、  
-マウスを右側に移動させることで残像のエフェクトをインタラクティブに加えることができます。  
+GPGPUを行いインスタンシングしています  
+被写界深度のポストエフェクトを加えています  
 ![three.js GPGPU](http://skizi.jp/github/assets/images/gpgpu2.gif)

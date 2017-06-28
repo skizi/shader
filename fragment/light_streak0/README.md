@@ -2,6 +2,5 @@
 
 
 ■Light Streak  
-緯度経度をからラインを引いたり、  
-マウスを右側に移動させることで残像のエフェクトをインタラクティブに加えることができます。  
+ハイライトを拾って十字状の光を描画しています  
 ![three.js Light Streak](http://skizi.jp/github/assets/images/light_streak0.gif)

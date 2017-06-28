@@ -2,6 +2,5 @@
 
 
 ■Color Change  
-緯度経度をからラインを引いたり、  
-マウスを右側に移動させることで残像のエフェクトをインタラクティブに加えることができます。  
+車の３Dモデルの色をクリックした位置から円形に切り替えています。  
 ![three.js color change](http://skizi.jp/github/assets/images/color_change0.gif)

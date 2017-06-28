@@ -2,6 +2,6 @@
 
 
 ■Easy IBL  
-緯度経度をからラインを引いたり、  
-マウスを右側に移動させることで残像のエフェクトをインタラクティブに加えることができます。  
+three.js + キューブマップでお手軽IBL  
+参考：http://qiita.com/kaneta1992/items/df1ae53e352f6813e0cd  
 ![three.js Easy IBL](http://skizi.jp/github/assets/images/ibl2.jpg)

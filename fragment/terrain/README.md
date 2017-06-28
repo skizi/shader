@@ -2,6 +2,5 @@
 
 
 ■Terrain  
-緯度経度をからラインを引いたり、  
-マウスを右側に移動させることで残像のエフェクトをインタラクティブに加えることができます。  
+テクスチャペイントとハイトマップを組み合わせTerrainを実装しました  
 ![Terrain](http://skizi.jp/github/assets/images/terrain0.gif)

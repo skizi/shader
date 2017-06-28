@@ -2,6 +2,5 @@
 
 
 Texture Paint  
-緯度経度をからラインを引いたり、  
-マウスを右側に移動させることで残像のエフェクトをインタラクティブに加えることができます。  
+CanvasとGLSLを組み合わせテクスチャペイントを行っています。  
 ![Texture Paint](http://skizi.jp/github/assets/images/paint0.gif)
