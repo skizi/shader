@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ja">
+	<head>
+		<title>three.js Terrain</title>
+
+		<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+		<meta name="viewport" content="width=640">
+
+		<link rel="stylesheet" href="color_picker.css">
+
+	    <script src="../../js/three.min.js"></script>
+	    <script src="../../js/threejs/postprocessing/MaskPass.js"></script>
+	    <script src="../../js/threejs/postprocessing/EffectComposer.js"></script>
+	    <script src="../../js/threejs/postprocessing/ShaderPass.js"></script>
+	    <script src="../../js/threejs/postprocessing/RenderPass.js"></script>
+	    <script src="../../js/threejs/shaders/CopyShader.js"></script>
+	    <script src="../../js/threejs/postprocessing/BloomPass.js"></script>
+	    <script src="../../js/threejs/shaders/CopyShader.js"></script>
+	    <script src="../../js/threejs/shaders/HorizontalTiltShiftShader.js"></script>
+	    <script src="../../js/threejs/shaders/VerticalTiltShiftShader.js"></script>
+	    <script src="../../js/threejs/shaders/ConvolutionShader.js"></script>
+	    <script src="../../js/shaders/RGBShiftShader.js"></script>
+	    <script src="../../js/shaders/DotScreenShader.js"></script>
+	    <script src="jquery.js"></script>
+	    <script src="skizi.js"></script>
+	    <script src="color_picker.js"></script>
+	    <script src="player.js"></script>
+	    <script src="raycast_manager.js"></script>
+			
+
+	</head>
+	<body>
+
+	<style>
+		body{
+			overflow: hidden;
+		}
+
+		div#viewer{
+		    width: 500px;
+		    height: 500px;
+		    margin: 80px auto 0 auto;
+		    position: relative;
+		}
+
+		ul#effectBtns{
+			margin:0;
+			padding:0;
+			position:absolute;
+			top:20px;
+			left:20px;
+		}
+
+		#effectBtns li{
+			margin:0 10px 10px 0;
+			display:inline-block;
+			height:40px;
+			line-height: 40px;
+			padding:0 10px;
+			background-color: #ff9800;
+			border-radius:10px;
+			border:2px solid #fff;
+			color:#fff;
+			font-weight:bold;
+			text-shadow: 1px 1px 2px #aaa;
+			cursor:pointer;
+		}
+
+		#effectBtns li:hover{
+			background-color: #ffc267;
+		}
+	</style>
+
+
+    <script>
+
+	MYAPP = {};
+
+	$( window ).ready(function(){
+
+		new MYAPP.Main();
+
+	});
+
+	MYAPP.Main = (function(){
+
+		MYAPP.touchManager = new SKIZI.TouchManager();
+		MYAPP.touchManager.movePreventDefaultNoneFlag = true;
+		MYAPP.touch = SKIZI.touch;
+        MYAPP.nowColor = [255, 0, 0, 255];
+
+        var stageW = 500;
+        var stageH = 500;
+
+		var Input = { 
+				x:0,
+				y:0,
+				z:0,
+				alt:false,
+				run:false
+			};
+
+		var debugEle;
+		var btns;
+
+		var composer;
+		var effects = [];
+
+
+		function Main(){
+
+			$( document.body ).css({ margin:0 });
+
+			initThree();
+
+	        debugEle = $('<div>');
+	        debugEle.css({ position:'absolute', top:'0px', color:'#fff' });
+	        $( document.body ).append( debugEle );
+
+	        $(window).resize( resize );
+
+
+
+	        window.onkeydown = keyDown.bind(this);
+	        window.onkeyup = keyUp.bind(this);
+
+	        $( document ).on( 'mousedown touchstart', downHandler.bind( this ) );
+
+	        btns = $( '#effectBtns li' );
+	        btns.on( 'click', effectBtnClick.bind( this ) );
+
+	        setInterval( function(){
+
+	        	var r = Math.random();
+	        	if( r < .2 ){
+		        	player.playAnimation( 'default' );
+		        }else if( r < .45 ){
+		        	player.playAnimation( 'walk' );
+		        }else if( r < .7 ){
+		        	player.playAnimation( 'jump' );
+		        }else if( r < 1 ){
+		        	player.playAnimation( 'run' );
+		        }
+
+	        }, 3000 );
+
+	    }
+
+
+	    function keyDown(e) {
+	        e.preventDefault();
+
+	        if (e.keyCode === 37 || e.keyCode === 65) {
+	            Input.x = -1;
+	        }
+	        if (e.keyCode === 38 || e.keyCode === 87) {
+	            Input.z = 1;
+	        }
+
+	        if (e.keyCode === 39 || e.keyCode === 68) {
+	            Input.x = 1;
+	        }
+
+	        if (e.keyCode === 40 || e.keyCode === 83) {
+	            Input.z = -1;
+	        }
+
+	        if (e.keyCode === 32) {
+	            Input.y = 1;
+	        }
+
+	        if (e.keyCode === 16) {
+	            Input.run = true;
+	        }
+
+	        if (e.keyCode === 18) {
+	            Input.alt = true;
+	        }
+
+	        if (e.keyCode === 13) {
+	            Vars.enterDown();
+	        }
+	    };
+
+	    function keyUp(e) {
+	        e.preventDefault();
+
+	        if (e.keyCode === 37 || e.keyCode === 65) {
+	            Input.x = 0;
+	        }
+	        if (e.keyCode === 38 || e.keyCode === 87) {
+	            Input.z = 0;
+	        }
+
+	        if (e.keyCode === 39 || e.keyCode === 68) {
+	            Input.x = 0;
+	        }
+
+	        if (e.keyCode === 40 || e.keyCode === 83) {
+	            Input.z = 0;
+	        }
+
+	        if (e.keyCode === 32) {
+	            Input.y = 0;
+	        }
+
+	        if (e.keyCode === 16) {
+	            Input.run = false;
+	        }
+
+	        if (e.keyCode === 18) {
+	            Input.alt = false;
+	        }
+	    };
+
+
+	    function downHandler(){
+	    	checkDownObject();
+	    }
+
+
+	    function effectBtnClick( e ){
+
+	    	if( !player.mesh ) return;
+
+	    	var index = btns.index( e.target );
+	    	switch( index ){
+
+	    		case 0:
+	    			initComposer( '' );
+	    			break;
+
+	    		case 1:
+	    			initComposer( 'rgb' );
+	    			break;
+
+	    		case 2:
+	    			initComposer( 'blur' );
+	    			break;
+
+	    		case 3:
+	    			initComposer( 'bloom' );
+	    			break;
+
+	    		case 4:
+	    			initComposer( 'dot' );
+	    			break;
+
+	    	}
+
+	    }
+
+
+
+		//------------------------three--------------------
+        var scene;
+        var renderer;
+        var camera;
+
+        var cameraY = 80;
+        var cameraRadius = 130;
+        var cameraRot = 90;
+        var toRad = Math.PI / 180;
+
+
+
+    	var clock = new THREE.Clock();
+    	var raycastManager;
+    	var raycaster;
+
+    	var groundTexture;
+    	var textureLoadCount = 0;
+
+
+        function initThree(){
+
+	        scene = new THREE.Scene();
+
+	        renderer = new THREE.WebGLRenderer();
+	        renderer.setSize( 500, 500 );
+	        renderer.shadowMapEnabled = true;
+	        $( '#viewer' ).append(renderer.domElement);
+
+
+	        var fov = 50;
+	        var aspect = window.innerWidth / window.innerHeight;
+	        aspect = 1;
+	        camera = new THREE.PerspectiveCamera(fov, aspect, 1, 20000);
+	        camera.position.x = 0;
+	        camera.position.y = cameraY;
+	        camera.position.z = cameraRadius;
+	        camera.lookAt( new THREE.Vector3( 0, 50, 0 ) );
+
+	        
+	        var light = new THREE.DirectionalLight(0xffffff, .5);
+	        light.position.set( 100, 500, 200);
+	        light.castShadow = true;
+	        light.shadowCameraLeft = -200;
+	        light.shadowCameraRight = 200;
+	        light.shadowCameraBottom = -200;
+	        light.shadowCameraTop = 200;
+	        scene.add(light);
+
+	        initTexture();
+        
+	        initComposer();
+
+        }
+
+
+        function initComposer( type ){
+
+	        composer = new THREE.EffectComposer( renderer );
+	        composer.addPass(new THREE.RenderPass(scene, camera));
+
+	        switch( type ){
+
+	        	case 'rgb':
+		            var effect = new THREE.ShaderPass(THREE.RGBShiftShader);
+		            effect.uniforms['amount'].value = 0.01;
+		            composer.addPass(effect);
+		            break;
+
+		        case 'blur':
+		            var obj = getBlurPass( .6, 2.5 );
+		            composer.addPass(obj.hblur);
+		            composer.addPass(obj.vblur);
+		            break;
+
+		        case 'bloom':
+	    			var effect = new THREE.BloomPass(4, 13);
+		            composer.addPass( effect );
+		            break;
+
+		        case 'dot':
+					var effect = new THREE.ShaderPass( THREE.DotScreenShader );
+					effect.uniforms[ 'scale' ].value = 2;
+					composer.addPass( effect );
+		        	break;
+
+		    }
+
+	        var toScreenPass = new THREE.ShaderPass(THREE.CopyShader);
+	        toScreenPass.renderToScreen = true;
+	        composer.addPass( toScreenPass );
+
+        }
+
+
+        function getBlurPass( r, bluriness ){
+
+            var hblur = new THREE.ShaderPass(THREE.HorizontalTiltShiftShader);
+            var vblur = new THREE.ShaderPass(THREE.VerticalTiltShiftShader);
+            hblur.uniforms['h'].value = bluriness / stageW;
+            vblur.uniforms['v'].value = bluriness / stageH;
+            hblur.uniforms['r'].value = vblur.uniforms['r'].value = r;
+
+            return { hblur:hblur, vblur:vblur };
+        }
+
+
+        function initTexture(){
+
+            groundTexture = THREE.ImageUtils.loadTexture( 'img/ground0_512.jpg', THREE.UVMapping, textureLoadCheck );
+
+        }
+
+
+        function textureLoadCheck(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 1 ){
+                initObject();
+		        animate();
+            }
+
+        }
+
+
+        function initObject(){
+
+	        //床
+            //groundTexture.repeat.set( 2, 2 );
+            groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+	        var material2 = new THREE.MeshLambertMaterial({ map:groundTexture });
+	        //material = new THREE.MeshBasicMaterial( { color:0xff0000, wireframe:true } );
+	        geometry = new THREE.PlaneGeometry( 400, 400, 5, 5 );
+	        mesh = new THREE.Mesh( geometry, material2 );
+	        mesh.rotation.x = 270 *  Math.PI / 180;
+	        mesh.receiveShadow = true;
+	        scene.add( mesh );
+
+	        player = new Player( playerLoadCompHandler.bind( this ) );
+
+        }
+
+
+        function playerLoadCompHandler(){
+
+            player.mesh.scale.set( 40, 40, 40);
+            player.mesh.updateMatrix();
+            player.setPosition( 0, 0, 0 );
+	        player.mesh.castShadow  = true;
+	        player.mesh.name = 'player';
+        	scene.add( player.mesh );
+
+        	raycastManager = new RaycastManager( scene, camera );
+            raycastManager.add( player.mesh, true );
+            raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+
+
+        }
+
+
+
+
+		var rotX = 0;
+		var start = Date.now();
+        function animate() {
+
+			requestAnimationFrame( animate );
+
+			//renderer.render( scene, camera );
+	        if( composer ) composer.render(.1);
+
+			if( player.mesh ) player.render( clock.getDelta() );
+
+
+            var time = .00003 * ( Date.now() - start );
+            
+			
+			if( MYAPP.touch.downFlag ){
+
+				//if( Input.alt ){
+					rotateCamera();
+					return;
+				//}
+
+			}
+
+        }
+
+
+        function checkDownObject(){
+
+        	if(!raycaster) return;
+
+            var vector = screen2world();
+            vector.sub( camera.position.clone() ).normalize();
+            raycaster.set( camera.position.clone(), vector);
+            var obj = raycastManager.hitCheck(raycaster, 1000, 'mouse');
+
+            if (obj.hitFlag) {
+            	var pos = raycastManager.getFirstPointByName(obj.intersections, 'player');
+            	if( pos ) player.click();
+            }
+
+        }
+
+
+        function screen2world() {
+
+            var _touch = new THREE.Vector3(MYAPP.touch.x, MYAPP.touch.y, .5);
+            _touch.x = (_touch.x / window.innerWidth) * 2 - 1;
+            _touch.y = -(_touch.y / window.innerHeight) * 2 + 1;
+
+            //projector.unprojectVector(_touch, camera);
+            _touch.unproject( camera );
+
+            return _touch;
+        }
+
+
+        var cameraTargetRot = 90;
+        function rotateCamera(){
+
+        	cameraTargetRot += MYAPP.touch.offsetX;
+        	MYAPP.touch.offsetX = 0;
+        	cameraRot += -( cameraRot - cameraTargetRot ) * .1; 
+
+        	var radian = cameraRot * toRad;
+        	var x = Math.cos( radian ) * cameraRadius;
+        	var z = Math.sin( radian ) * cameraRadius;
+
+        	camera.position.set( x, cameraY, z );
+        	camera.lookAt( new THREE.Vector3( 0, 50, 0 ) );
+
+        }
+
+
+        function resize(){
+
+        	// camera.aspect = window.innerWidth / window.innerHeight;
+        	// camera.updateProjectionMatrix();
+        	// renderer.setSize( window.innerWidth, window.innerHeight );
+
+        }
+
+        return Main;
+
+     })();
+
+    </script>
+
+    <div id="viewer">
+	    <ul id="effectBtns">
+	    	<li>通常</li>
+	    	<li>RGBシフト</li>
+	    	<li>被写界深度</li>
+	    	<li>ブルーム</li>
+	    	<li>ドット</li>
+	    </ul>
+	</div>
+
+	</body>
+</html>
