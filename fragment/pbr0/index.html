@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>three.js Earth Afterimage</title>
+
+    <style>
+        html,body{
+            margin:0;
+            overflow: hidden;
+        }
+
+        p#loading{
+            width:100%;
+            margin-top:-20px;
+            text-align: center;
+            position:absolute;
+            top:50%;
+            left:0px;
+            color:#fff;
+            font-size:40px;
+            font-style: italic;
+        }
+    </style>
+    
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+    <script src="../../js/ysd.js"></script>
+    <script src="../../js/threejs69/three.js"></script>
+    <script src="../../js/threejs69/postprocessing/EffectComposer.js"></script>
+    <script src="../../js/threejs69/postprocessing/MaskPass.js"></script>
+    <script src="../../js/threejs69/postprocessing/ShaderPass.js"></script>
+    <script src="../../js/threejs69/postprocessing/RenderPass.js"></script>
+    <script src="../../js/threejs69/shaders/CopyShader.js"></script>
+    <script src="../../js/threejs69/shaders/ConvolutionShader.js"></script>
+    <script src="../../js/threejs69/shaders/HorizontalTiltShiftShader.js"></script>
+    <script src="../../js/threejs69/shaders/VerticalTiltShiftShader.js"></script>
+    <script src="../../js/threejs69/loaders/deprecated/SceneLoader.js"></script>
+
+    <script type="x-shader/x-vertex" id="vshader">
+        uniform vec3 lightPos;
+        uniform vec3 cameraPos;
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vPos;
+
+        void main(void){
+
+            vUv = uv;
+
+            vPos = vec3( modelMatrix * vec4(position, 1.0) );
+            vNormal = normalize( vec3( modelMatrix * vec4(normal, .0)));
+
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+
+        }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="fshader">
+
+// #define LIGHT_MAX 1
+// uniform DirectionalLight directionalLights[LIGHT_MAX];
+        #define saturate(a) clamp( a, 0.0, 1.0 )
+        #define PI 3.14159265359
+        #define EPSILON 1e-6
+
+        uniform sampler2D textuer;
+        uniform vec3 lightColor;
+        uniform vec3 color;
+        uniform vec3 ambientColor;
+        uniform float roughness;
+        uniform float _FresnelReflectance;
+        uniform float metallic;
+
+        uniform vec3 lightPos;
+        uniform vec3 cameraPos;
+
+        varying vec3 vPos;
+        varying vec2 vUv;
+        varying vec3 vNormal;
+
+
+        struct IncidentLight {
+            vec3 color;
+            vec3 direction;
+            bool visible;
+        };
+
+
+        bool testLightInRange(const in float lightDistance, const in float cutoffDistance) {
+          return any(bvec2(cutoffDistance == 0.0, lightDistance < cutoffDistance));
+        }
+
+        float punctualLightIntensityToIrradianceFactor(const in float lightDistance, const in float cutoffDistance, const in float decayExponent) {
+          if (decayExponent > 0.0) {
+            return pow(saturate(-lightDistance / cutoffDistance + 1.0), decayExponent);
+          }
+
+          return 1.0;
+        }
+
+
+        void main(void) {
+
+            vec3 _vNormal = normalize( vNormal );
+
+
+            IncidentLight directLight;
+
+vec3 lightDirectionNormal = normalize( lightPos );
+float NdotL = saturate(dot(_vNormal, lightDirectionNormal));
+vec3 irradiance = NdotL * vec3( 1., 1., 1. );
+
+// punctual light
+irradiance *= PI;
+
+
+
+            //------------------------------------------------------------
+            // 環境光とマテリアルの色を合算
+            vec3 ambientLight = ambientColor.xyz * color.rgb;
+
+            // vec3 lightDirectionNormal = normalize( _lightPos.xyz );
+            // float NdotL = saturate(dot(vNormal, lightDirectionNormal));
+
+            vec3 viewDirectionNormal = normalize( cameraPos- vPos );
+            float NdotV = saturate(dot(_vNormal, viewDirectionNormal));
+
+            vec3 halfVector = normalize(lightDirectionNormal + viewDirectionNormal);
+            float NdotH = saturate(dot(_vNormal, halfVector));
+            float VdotH = saturate(dot(viewDirectionNormal, halfVector));
+
+            float _roughness = saturate( roughness );
+            float a = _roughness * _roughness;
+            float a2 = a * a;
+            float t = ((NdotH * NdotH) * (a2 - 1.0) + 1.0);
+            float D = a2 / (PI * t * t);
+
+
+            // float F0 = saturate(_FresnelReflectance);
+            // float F = pow(1.0 - VdotH, 5.0);
+            // F *= (1.0 - F0);
+            // F += F0;
+            vec3 specularC = mix(vec3(0.04), color, metallic);
+            vec3 F = vec3( pow(1.0 - VdotH, 5.0) );
+            F *= ( 1. - specularC );
+            F += specularC;
+
+            //A
+            // float NH2 = 2.0 * NdotH;
+            // float g1 = (NH2 * NdotV) / VdotH;
+            // float g2 = (NH2 * NdotL) / VdotH;
+            // float G = min(1.0, min(g1, g2));
+
+//B
+float k = a*a*0.5 + EPSILON;
+float gl = NdotL / (NdotL * (1.0 - k) + k);
+float gv = NdotV / (NdotV * (1.0 - k) + k);
+float G = gl*gv;
+
+
+
+vec3 diffuseC = mix(color, vec3(0.0), metallic);
+
+            //float specularReflection = (D * F * G) / (4.0 * NdotV * NdotL + EPSILON);
+            //vec3 specularReflection = (D * F * G) / (4.0 * NdotV * NdotL + EPSILON);
+            vec3 specularReflection = (F*(G*D))/(4.0 * NdotL *NdotV + EPSILON );
+
+            //A
+            vec3 diffuseReflection = lightColor.xyz * diffuseC * NdotL;
+            
+            //B
+            diffuseReflection = diffuseC / PI;
+
+
+            gl_FragColor = vec4( ambientLight + diffuseReflection * irradiance + specularReflection * irradiance, 1.0);
+
+        }
+
+    </script>
+</head>
+<body>
+
+<p id="loading">loading...</p>
+<script>
+
+    var MYAPP = MYAPP||{};
+    $( window ).load(function(){
+
+        new MYAPP.Main();
+
+    });
+
+
+    MYAPP.Main = (function(){
+
+        var toRad = Math.PI / 180;
+        var toRot = 180 / Math.PI;
+
+        var stageW = window.innerWidth;
+        var stageH = window.innerHeight;
+
+        var downFlag = false;
+
+        var scene;
+        var renderer;
+        var camera;
+        var cameraFov = 50;
+        var rot = 0;
+        var cameraRotTarget = 90;
+        var rotY = 0;
+        var cameraRadius = 12;
+        var cameraTargetY = 5;
+        var start = Date.now();
+        var oldTime = 0;
+
+        var light;
+
+        var cubeTexture;
+        var textureLoadCount = 0;
+        var textuers = {};
+
+        var composer;
+        var blurComposer;
+        var copyComposer;
+        var hblur;
+        var vblur;
+        var blur = { bluriness:8 };
+        var compositShaderPass;
+
+        var renderTargetParameters = {
+            minFilter: THREE.NearestFilter,//縮めた時にじまないように //THREE.LinearFilter,
+            magFilter: THREE.NearestFilter,//広げたときにじまない様に //THREE.LinearFilter,
+            format: THREE.RGBAFormat,
+            type:THREE.FloatType,//テクスチャの色の解像度　高
+            stencilBuffer: false
+        }
+
+        var sphereMesh;
+        var material;
+
+
+
+
+        function Main(){
+
+            MYAPP.ua = new YSD.UserAgent();
+            var touchManager = new YSD.TouchManager();
+            MYAPP.touch = YSD.touch;
+            
+            touchManager.setTouchStartFunc( function(){
+                downFlag = true;
+            } );
+
+            touchManager.setTouchEndFunc(  function(){
+                downFlag = false;
+            }  );
+
+            initScene();
+            initTexture();
+
+            $( window ).resize( resize );
+        
+        }
+
+
+        function initScene(){
+
+            scene = new THREE.Scene();
+
+            renderer = new THREE.WebGLRenderer({ antialias:true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMapEnabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            var aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera( cameraFov, aspect, .1, 200);
+            camera.position.x = 0;
+            camera.position.y = 0;
+            camera.position.z = -8;
+            camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
+
+            
+            light = new THREE.DirectionalLight(0xffffff, 1);
+            light.castShadow = true;
+            light.shadowMapWidth = 1024;//影の描画用テクスチャの横解像度
+            light.shadowMapHeight = 1024;//影の描画用テクスチャの縦解像度
+            light.shadowCameraNear = 1; //四角錐台の上面の位置
+            light.shadowCameraFar = 30; //四角錐台の下面の位置
+            light.shadowCameraLeft = -10;    //描画範囲左範囲
+            light.shadowCameraRight = 10;    //描画範囲右範囲
+            light.shadowCameraTop = 10;  //描画範囲上範囲
+            light.shadowCameraBottom = -10;  //描画範囲下範囲
+            light.position.set( 0, 4, -4);
+            light.castShadow = true;
+            scene.add(light);
+
+        }
+
+
+        function initTexture(){
+
+            var cubeImgs = [
+                    'assets/images/cube/space_posX.jpg',
+                    'assets/images/cube/space_negX.jpg',
+                    'assets/images/cube/space_posY.jpg',
+                    'assets/images/cube/space_negY.jpg',
+                    'assets/images/cube/space_posZ.jpg',
+                    'assets/images/cube/space_negZ.jpg',
+                ];
+            cubeTexture = THREE.ImageUtils.loadTextureCube( cubeImgs, THREE.UVMapping, textureLoadCheck );
+
+        }
+
+
+        function textureLoadCheck(){
+
+            textureLoadCount++;
+            if( textureLoadCount == 1 ){
+
+                initMaterial();
+                initObject();
+                setInterval( animate, 1000 / 30 );
+
+                $( '#loading' ).hide();
+
+            }
+
+        }
+
+
+        function initMaterial(){
+
+
+            material = new THREE.ShaderMaterial({
+                vertexShader: $('#vshader').text(),
+                fragmentShader: $('#fshader').text(),
+                uniforms: {
+                    // texture: {
+                    //     type: 't',
+                    //     value: earthDiffuseTexture
+                    // },
+                    lightPos:{
+                        type: 'v3',
+                        value: light.position.clone()   
+                    },
+                    lightColor:{
+                        type: 'v3',
+                        value: new THREE.Vector3( 1, 1, 1 )
+                    },
+                    cameraPos: {
+                        type: 'v3',
+                        value: camera.position.clone()
+                    },
+                    color: {
+                        type: 'v3',
+                        value: new THREE.Vector3( 1, 1, 1 )
+                    },
+                    ambientColor: {
+                        type: 'v3',
+                        value: new THREE.Vector3( 0, 0, 0 )
+                    },
+                    roughness :{
+                        type:'f',
+                        value:0.5
+                    },
+                    _FresnelReflectance:{
+                        type:'f',
+                        value:0.5
+                    },
+                    metallic:{
+                        type:'f',
+                        value:0.5
+                    }
+                }
+            });
+            //material = new THREE.MeshBasicMaterial();
+
+        }
+
+var earthRadius = 6378.137;
+        function initObject(){
+
+            var shader = THREE.ShaderLib[ "cube" ];
+            shader.uniforms[ "tCube" ].value = cubeTexture;
+            var skyBoxMaterial = new THREE.ShaderMaterial( {
+
+                fragmentShader: shader.fragmentShader,
+                vertexShader: shader.vertexShader,
+                uniforms: shader.uniforms,
+                depthWrite: false,
+                side: THREE.BackSide
+
+            } );
+
+            skyBox = new THREE.Mesh( new THREE.BoxGeometry( 100, 100, 100 ), skyBoxMaterial );
+            scene.add( skyBox );
+
+
+
+            sphereMesh = new THREE.Mesh(new THREE.SphereGeometry( 1, 32, 32 ), material );
+            sphereMesh.position.set( 0, 0, 0 );
+            sphereMesh.rotation.y = 180 * toRad;
+            scene.add( sphereMesh );
+
+
+            var torusGeometry = new THREE.TorusKnotGeometry(0.6,0.2,100,20);
+            var torus = new THREE.Mesh(torusGeometry, material);
+            torus.position.set(2,0,0);
+            scene.add(torus);
+
+        }
+
+
+
+
+
+        function animate() {
+
+            var time = ( Date.now() - start );
+
+
+            renderer.render(scene, camera);
+
+        }
+
+
+        function resize(){
+
+            stageW = window.innerWidth;
+            stageH = window.innerHeight;
+            camera.aspect = stageW / stageH;
+            camera.updateProjectionMatrix();
+            renderer.setSize(stageW, stageH);
+
+        }
+
+        return Main;
+
+    })();
+
+</script>
+
+
+
+</body>
+</html>
